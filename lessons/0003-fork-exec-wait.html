@@ -15,7 +15,7 @@
 
 <p class="kicker">Lesson 3 · Virtualizing the CPU</p>
 <h1>fork, exec and wait</h1>
-<p class="lede">UNIX makes new processes in a strange way: first it clones the process that asked, then it lets the clone turn itself into a different program. Three system calls do the whole job.</p>
+<p class="lede">The question for this lesson: how does a program start another program? UNIX does it in a strange way. First it makes a copy of the process that asked. Then the copy can turn itself into a different program. Three system calls do the whole job. OSTEP calls <code>fork()</code> "certainly the strangest routine you will ever call".<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-api.pdf">OSTEP §5.1</a></p>
 
 <div class="box key"><span class="tag">The one-sentence version</span>
 <code>fork()</code> creates a child that is a near-copy of the parent (<strong>new PID</strong>, returns twice). <code>wait()</code> makes a parent pause until <strong>its own</strong> child finishes. <code>exec()</code> replaces the current program with a new one (<strong>same PID</strong>, never returns on success). A shell uses all three together.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-api.pdf">OSTEP §5</a><span class="cite">Bilal slides, Ch 5</span></div>
@@ -31,7 +31,10 @@
 
 <!-- ======================================================== -->
 <h2>System calls and <code>&lt;unistd.h&gt;</code></h2>
-<p>An <strong>API</strong> (Application Programming Interface) is a set of functions a system offers so you can control it. The OS's API is its set of <strong>system calls</strong>. They give access to hardware and other privileged operations, and they <strong>always run in kernel mode</strong> (privileged mode).<span class="cite">Bilal slides, Ch 5</span> In C you reach the process-related ones through two headers:</p>
+<p class="crux"><strong>The problem:</strong> your C program wants the OS to do something for it, like make a new process. How does it ask?</p>
+<p>It calls a function that the OS offers. A set of functions like that is called an <strong>API</strong> (Application Programming Interface).</p>
+<p>The OS's API is its set of <strong>system calls</strong>. A <strong>system call</strong> is a function that asks the OS to do privileged work for you, such as touching the hardware. Because the work is privileged, system calls <strong>always run in kernel mode</strong> (the CPU's privileged mode; Lesson 4 explains it).<span class="cite">Bilal slides, Ch 5</span></p>
+<p>In C, the process-related system calls come from two headers:</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Header</th><th>Gives you</th></tr></thead>
 <tbody>
@@ -39,7 +42,10 @@
 <tr><td><code>&lt;sys/wait.h&gt;</code></td><td><code>wait()</code>, <code>waitpid()</code> ("We need wait.h", says Bilal's slide)</td></tr>
 </tbody></table></div>
 <div class="box exam"><span class="tag">This is how it's asked: "What is &lt;unistd.h&gt; for?"</span>
-It's the <strong>UNIX standard</strong> header. It gives a C program access to the <strong>POSIX operating-system API</strong>: the basic system calls for process management (<code>fork</code>, <code>exec</code>, <code>getpid</code>) and low-level file I/O (<code>read</code>, <code>write</code>, <code>close</code>).</div>
+It's the <strong>UNIX standard</strong> header. It gives a C program access to the <strong>POSIX operating-system API</strong>. That means two groups of basic system calls:
+<ul><li>process management: <code>fork</code>, <code>exec</code>, <code>getpid</code></li>
+<li>low-level file I/O: <code>read</code>, <code>write</code>, <code>close</code></li></ul></div>
+<p class="inshort"><strong>In short:</strong> system calls are how a program asks the OS for help, and they always run in kernel mode. <code>&lt;unistd.h&gt;</code> gives <code>fork</code>/<code>exec</code>/<code>getpid</code>; <code>&lt;sys/wait.h&gt;</code> gives <code>wait</code>/<code>waitpid</code>.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">In C, which header gives you <code>fork()</code>, <code>exec</code> and <code>getpid()</code>, and which one gives you <code>wait()</code>/<code>waitpid()</code>?</p>
@@ -59,11 +65,15 @@ It's the <strong>UNIX standard</strong> header. It gives a C program access to t
 
 <!-- ======================================================== -->
 <h2><code>fork()</code>: one call, two processes</h2>
+<p class="crux"><strong>The problem:</strong> a running process wants a second process. How does UNIX make one?</p>
+<p>It makes a copy. Think of a photocopier: you put in one page and get two that look the same.</p>
 <ul>
-<li>An existing process (the <strong>parent</strong>) calls <code>fork()</code> to create a new process (the <strong>child</strong>).</li>
-<li>The child is <strong>nearly identical</strong> to the parent, but it gets its <strong>own</strong> copy of the address space and its own registers. It's a separate process: changing a variable in one doesn't change it in the other.</li>
-<li>The child <strong>does not start at <code>main()</code></strong>. It starts right <em>after</em> the <code>fork()</code> call, because that's the instant it was copied.<span class="cite">Bilal slides, Ch 5</span></li>
+<li>The process that calls <code>fork()</code> is the <strong>parent</strong>. The new process is the <strong>child</strong>.</li>
+<li>The child is <strong>nearly identical</strong> to the parent. It has the same code and the same variable values.</li>
+<li>But the child gets its <strong>own copy</strong> of the memory (address space) and registers. So changing a variable in one process doesn't change it in the other.</li>
+<li>The child <strong>does not start at <code>main()</code></strong>. It starts right <em>after</em> the <code>fork()</code> call, because that is the moment it was copied.<span class="cite">Bilal slides, Ch 5</span></li>
 </ul>
+<p>Now both processes run the same code from the same line. How does each one know which one it is? By the value <code>fork()</code> returns.</p>
 
 <figure>
 <svg viewBox="0 0 600 230" role="img" aria-label="Before fork there is one process. After fork there are two: the parent where rc is the child's PID, and the child where rc is 0">
@@ -121,10 +131,11 @@ int main(int argc, char *argv[])
 [pid:6318] - Hello Students
 [pid:6318] - I am parent of [6319]
 [pid:6319] - I am child. return_child = [0]</code></pre>
-<p>"Hello Students" prints <strong>once</strong>, because the child didn't exist yet. Everything after the fork runs in <strong>both</strong> processes.</p>
+<p>"Hello Students" prints <strong>once</strong>. When that line ran, the child didn't exist yet. Everything after the fork runs in <strong>both</strong> processes.</p>
 
 <div class="box trap"><span class="tag">Trap: the order is not guaranteed</span>
-Run it again and the child may print first. After <code>fork()</code> there are two independent processes, and the <strong>scheduler</strong> decides which runs first. The output is <strong>non-deterministic</strong>, the same idea as the race in Lesson 1, but with whole processes.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-api.pdf">OSTEP §5.1</a> Only <code>wait()</code> (below) can force an order.</div>
+Run it again and the child may print first. Why? After <code>fork()</code> there are two separate processes. The <strong>scheduler</strong> (the part of the OS that picks who runs next) decides which goes first. So the output is <strong>non-deterministic</strong>: it can change from run to run. It's the same idea as the race in Lesson 1, but with whole processes.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-api.pdf">OSTEP §5.1</a> Only <code>wait()</code> (below) can force an order.</div>
+<p class="inshort"><strong>In short:</strong> <code>fork()</code> copies the caller. The child gets 0, the parent gets the child's PID, and −1 means it failed. The child starts just after the fork, with its own copy of every variable, and nobody knows who prints first.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">What does <code>fork()</code> return in the parent, in the child, and when it fails?</p>
@@ -170,7 +181,12 @@ else         printf("C\n");</code></pre></div>
 
 <!-- ======================================================== -->
 <h2>From your lab: fork() in p2a.c (Lab 2, Tasks 1–3)</h2>
-<p>Lab 2 Tasks 1–3 used one program, <code>p2a.c</code>: fork once, then let the parent and the child each print a different line. Task 2 added <code>sleep()</code> calls, and Task 3 kept both processes asleep so you could see them with <code>ps</code>.</p>
+<p>Lab 2 Tasks 1–3 used one program, <code>p2a.c</code>:</p>
+<ul>
+<li><strong>Task 1:</strong> fork once. The parent and the child each print a different line.</li>
+<li><strong>Task 2:</strong> add <code>sleep()</code> calls to change the timing.</li>
+<li><strong>Task 3:</strong> keep both processes asleep, so you can see them with <code>ps</code>.</li>
+</ul>
 <figure class="labcode" data-src="Labs/Lab 2/code/task1_p2a.c" data-lines="7-27" data-hl="10,13,20,26" data-caption="Task 1: one fork(), then the three-way check on its return value: &lt; 0 failed, == 0 child, else parent."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%202/code/task1_p2a.c">Labs/Lab 2/code/task1_p2a.c</a><span class="lc-span">lines 7–27</span></div><pre><span class="ln" data-n="7">    int a = (int) getpid();</span><span class="ln" data-n="8">    printf(&quot;[pid:%d] - Hello Students \n&quot;, a);</span><span class="ln" data-n="9"> </span><span class="ln hl" data-n="10">    int return_child = fork();</span><span class="ln" data-n="11"> </span><span class="ln" data-n="12">    // Checking if creating child process failed</span><span class="ln hl" data-n="13">    if (return_child &lt; 0)</span><span class="ln" data-n="14">    {</span><span class="ln" data-n="15">        fprintf(stderr, &quot;fork failed\n&quot;);</span><span class="ln" data-n="16">        exit(1);</span><span class="ln" data-n="17">    }</span><span class="ln" data-n="18"> </span><span class="ln" data-n="19">    // You&#x27;ve reached here, which means a child process was created</span><span class="ln hl" data-n="20">    if (return_child == 0) // child (new process)</span><span class="ln" data-n="21">    {</span><span class="ln" data-n="22">        printf(&quot;-------------------------------------------------------\n&quot;);</span><span class="ln" data-n="23">        printf(&quot;[pid:%d] I am the child. My returned child = [%d] \n&quot;, (int) getpid(), return_child);</span><span class="ln" data-n="24">        printf(&quot;-------------------------------------------------------\n&quot;);</span><span class="ln" data-n="25">    }</span><span class="ln hl" data-n="26">    else // parent continues from here</span><span class="ln" data-n="27">        printf(&quot;[pid:%d] I am parent of [%d] \n&quot;, (int) getpid(), return_child);</span></pre><figcaption>Task 1: one fork(), then the three-way check on its return value: &lt; 0 failed, == 0 child, else parent.</figcaption></figure>
 <pre><code>$ ./p2a                                      # your Task 1 output
 [pid:15230] - Hello Students
@@ -178,9 +194,14 @@ else         printf("C\n");</code></pre></div>
 -------------------------------------------------------
 [pid:15231] I am the child. My returned child = [0]
 -------------------------------------------------------</code></pre>
-<p>This is the "What <code>fork()</code> returns" table, live: the parent's <code>return_child</code> is <strong>15231</strong> (the child's PID), the child's is <strong>0</strong>. "Hello Students" prints <strong>once</strong>, because line 8 runs before the fork. The parent's line came first here, but only by chance: the scheduler picks who runs first.</p>
+<p>This is the "What <code>fork()</code> returns" table, live:</p>
+<ul>
+<li>In the parent, <code>return_child</code> is <strong>15231</strong> (the child's PID). In the child it is <strong>0</strong>.</li>
+<li>"Hello Students" prints <strong>once</strong>, because line 8 runs before the fork.</li>
+<li>The parent's line came first here, but only by chance. The scheduler picks who runs first.</li>
+</ul>
 <figure class="labcode" data-src="Labs/Lab 2/code/task2_p2a.c" data-lines="18-29" data-hl="20,27" data-caption="Task 2: the child sleeps 1 s and the parent 2 s, so the child usually wakes and prints first."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%202/code/task2_p2a.c">Labs/Lab 2/code/task2_p2a.c</a><span class="lc-span">lines 18–29</span></div><pre><span class="ln" data-n="18">    if (return_child == 0) // child (new process)</span><span class="ln" data-n="19">    {</span><span class="ln hl" data-n="20">        sleep(1); // child sleeps 1s before printing</span><span class="ln" data-n="21">        printf(&quot;-------------------------------------------------------\n&quot;);</span><span class="ln" data-n="22">        printf(&quot;[pid:%d] I am the child. My returned child = [%d] \n&quot;, (int) getpid(), return_child);</span><span class="ln" data-n="23">        printf(&quot;-------------------------------------------------------\n&quot;);</span><span class="ln" data-n="24">    }</span><span class="ln" data-n="25">    else // parent continues from here</span><span class="ln" data-n="26">    {</span><span class="ln hl" data-n="27">        sleep(2); // parent sleeps 2s before printing</span><span class="ln" data-n="28">        printf(&quot;[pid:%d] I am parent of [%d] \n&quot;, (int) getpid(), return_child);</span><span class="ln" data-n="29">    }</span></pre><figcaption>Task 2: the child sleeps 1 s and the parent 2 s, so the child usually wakes and prints first.</figcaption></figure>
-<p>Your Task 2 runs always printed the child first, and swapping the two sleeps flipped the order. As you wrote in your comments, that is a timing trick, not a guarantee: <code>sleep()</code> just puts a process in the <strong>Blocked</strong> state for a while. Only <code>wait()</code> (next sections) really forces an order.</p>
+<p>Your Task 2 runs always printed the child first. Swapping the two sleeps flipped the order. But as you wrote in your comments, that is a timing trick, not a guarantee. <code>sleep()</code> just puts a process in the <strong>Blocked</strong> state for a while. Only <code>wait()</code> (next sections) really forces an order.</p>
 <figure class="labcode" data-src="Labs/Lab 2/code/task3_p2a.c" data-lines="1-12" data-hl="6,10" data-caption="Task 3 (excerpt): both branches sleep 100 s, so both processes are still alive for ps."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%202/code/task3_p2a.c">Labs/Lab 2/code/task3_p2a.c</a><span class="lc-span">whole file</span></div><pre><span class="ln" data-n="1">    if (return_child == 0) // child (new process)</span><span class="ln" data-n="2">    {</span><span class="ln" data-n="3">        printf(&quot;-------------------------------------------------------\n&quot;);</span><span class="ln" data-n="4">        printf(&quot;[pid:%d] I am the child. My returned child = [%d] \n&quot;, (int) getpid(), return_child);</span><span class="ln" data-n="5">        printf(&quot;-------------------------------------------------------\n&quot;);</span><span class="ln hl" data-n="6">        sleep(100);</span><span class="ln" data-n="7">    }</span><span class="ln" data-n="8">    else // parent continues from here</span><span class="ln" data-n="9">    {</span><span class="ln hl" data-n="10">        sleep(100);</span><span class="ln" data-n="11">        printf(&quot;[pid:%d] I am parent of [%d] \n&quot;, (int) getpid(), return_child);</span><span class="ln" data-n="12">    }</span></pre><figcaption>Task 3 (excerpt): both branches sleep 100 s, so both processes are still alive for ps.</figcaption></figure>
 <pre><code>$ ps                                         # your Task 3 output, second terminal
   PID TTY          TIME CMD
@@ -188,7 +209,7 @@ else         printf("C\n");</code></pre></div>
 15600 pts/1    00:00:00 p2a
 15601 pts/1    00:00:00 p2a
 15650 pts/1    00:00:00 ps</code></pre>
-<p>Two <code>p2a</code> lines: <code>fork()</code> made a second, real process (15601) running the same program, not just a second branch inside one process.</p>
+<p>There are two <code>p2a</code> lines. So <code>fork()</code> really made a second process (15601) running the same program. It is not just a second branch inside one process.</p>
 <div class="labnote">Exam angle: given this exact code, say what each process prints and why "Hello Students" appears once; or say whether <code>sleep()</code> makes the order certain (it doesn't; <code>wait()</code> does).</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">In Task 2, change the child to <code>sleep(3)</code> and remove the parent's <code>sleep</code>. Which line most likely prints first, and is that guaranteed?</p>
@@ -235,7 +256,9 @@ else                                  // parent: return_child = child's PID
 
 <!-- ======================================================== -->
 <h2>Tracing fork trees</h2>
-<p>Exam questions give you code with several forks and ask: <strong>how many processes</strong>, <strong>who is whose parent</strong>, and <strong>who prints what</strong>. Try each program below. Press <strong>Step</strong> to create one process at a time, and read the line under the tree.</p>
+<p class="crux"><strong>The problem:</strong> with several forks, processes multiply fast and it's easy to lose count. How do you keep track?</p>
+<p>You draw a tree. Each process is a node, and each fork adds a child node below the process that called it. Exam questions give you code with several forks and ask three things: <strong>how many processes</strong>, <strong>who is whose parent</strong>, and <strong>who prints what</strong>.</p>
+<p>Try each program below. Press <strong>Step</strong> to create one process at a time, and read the line under the tree.</p>
 
 <div data-forktree="basic siblings ifchild twoforks loop"></div>
 <p class="small">Node colour = generation: blue is the original process, orange its children, green its grandchildren, purple the next generation. The text under each node is what that process prints. "fork #k" means the k-th <code>fork()</code> call in program order (for the loop, fork #k happens when <code>i = k−1</code>).</p>
@@ -243,15 +266,17 @@ else                                  // parent: return_child = child's PID
 <h3>The recipe</h3>
 <ol class="steps">
 <li>Start with one node, <strong>P0</strong>, at the top of the code. Note what it prints.</li>
-<li>At each <code>fork()</code> the current process reaches, draw a child below it. The child continues from <em>just after</em> that fork, with return value <code>0</code>. The parent continues with a <strong>positive</strong> return value.</li>
-<li>Follow each process separately through the <code>if</code>/<code>else</code> using its own return value. A process only reaches a later <code>fork()</code> if its branch contains one.</li>
-<li>Count the nodes for "how many processes", and read prints off each node.</li>
+<li>Each time a process reaches a <code>fork()</code>, draw a child below it.</li>
+<li>The child continues from <em>just after</em> that fork, with return value <code>0</code>. The parent continues with a <strong>positive</strong> return value.</li>
+<li>Follow each process on its own through the <code>if</code>/<code>else</code>, using its own return value. A process only reaches a later <code>fork()</code> if its branch contains one.</li>
+<li>Count the nodes for "how many processes". Read the prints off each node.</li>
 </ol>
 
 <div class="box key"><span class="tag">Counting shortcuts</span>
-<strong><em>n</em> forks in a row that every process executes</strong> (e.g. <code>fork(); fork(); fork();</code> or a loop of <em>n</em> forks) → <strong>2<sup><em>n</em></sup> processes</strong>, of which 2<sup><em>n</em></sup> − 1 are new.<br>
-<strong>A <code>printf</code> inside such a loop</strong> runs 2 + 4 + … + 2<sup><em>n</em></sup> = 2<sup><em>n</em>+1</sup> − 2 times (there are 2<sup><em>i</em></sup> processes alive during iteration <em>i</em>, counting from 1).<br>
-<strong>A fork inside an <code>if</code></strong> only doubles the processes that take that branch, so draw the tree. Don't use the formula.</div>
+Why a shortcut works: if <em>every</em> process runs a fork, the number of processes <strong>doubles</strong>. 1 → 2 → 4 → 8.<br>
+<strong><em>n</em> forks in a row that every process executes</strong> (e.g. <code>fork(); fork(); fork();</code> or a loop of <em>n</em> forks) → <strong>2<sup><em>n</em></sup> processes</strong>, of which 2<sup><em>n</em></sup> − 1 are new. Example: 3 forks → 8 processes, 7 new.<br>
+<strong>A <code>printf</code> after the fork inside such a loop</strong> runs 2 + 4 + … + 2<sup><em>n</em></sup> = 2<sup><em>n</em>+1</sup> − 2 times. (During iteration <em>i</em>, counting from 1, there are 2<sup><em>i</em></sup> processes alive.) Example: <em>n</em> = 2 → 2 + 4 = 6.<br>
+<strong>A fork inside an <code>if</code></strong> only doubles the processes that take that branch. So draw the tree. Don't use the formula.</div>
 
 <h3>Worked example: the "two siblings" program</h3>
 <pre><code>printf("S\n");
@@ -271,10 +296,12 @@ if (rc &gt; 0) {                // parent
 <tr><td>P1</td><td>P0 at fork #1 (rc = 0 → else branch)</td><td>T</td></tr>
 <tr><td>P2</td><td>P0 at fork #2 (rc2 = 0)</td><td>Q</td></tr>
 </tbody></table></div>
-<p><strong>3 processes.</strong> P1 and P2 are both children of P0, so they're <strong>siblings</strong>. There's <strong>no grandchild</strong>, because neither child ever forks. Compare the "if child, fork" tab: there the <em>child</em> forks, so P2 is P0's <strong>grandchild</strong> (P0 → P1 → P2). I checked both by compiling and running them.</p>
+<p><strong>3 processes.</strong> P1 and P2 are both children of P0, so they're <strong>siblings</strong>. There's <strong>no grandchild</strong>, because neither child ever forks.</p>
+<p>Compare the "if child, fork" tab. There the <em>child</em> forks, so P2 is P0's <strong>grandchild</strong> (P0 → P1 → P2). The rule: whoever calls <code>fork()</code> is the parent of the new process. I checked both programs by compiling and running them.</p>
 
 <div class="box exam"><span class="tag">This is how it's asked</span>
-"(a) How many processes execute this program? (b) Describe the hierarchy: who is the parent of whom, is there a grandparent/grandchild? (c) For each process, list what it prints." Answer (b) with an arrow chain like <code>P0 → P1 → P2 (P0 is P2's grandparent)</code> and draw the tree. A process that forks <em>inside the child's branch</em> is what creates a grandchild.</div>
+"(a) How many processes execute this program? (b) Describe the hierarchy: who is the parent of whom, is there a grandparent/grandchild? (c) For each process, list what it prints." For (b), draw the tree and write an arrow chain like <code>P0 → P1 → P2 (P0 is P2's grandparent)</code>. A grandchild only appears when a fork sits <em>inside the child's branch</em>.</div>
+<p class="inshort"><strong>In short:</strong> draw one node per process and one child per fork. If every process runs every fork, you get 2<sup><em>n</em></sup> processes. If a fork is inside an <code>if</code>, draw the tree instead of using the formula.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Every process runs <code>fork(); fork(); fork(); fork();</code> in a row. How many processes exist at the end (including the original), and how many are new?</p>
@@ -321,26 +348,31 @@ printf("C\n");</code></pre></div>
 
 <!-- ======================================================== -->
 <h2><code>wait()</code>: the parent waits for its child</h2>
-<p>Add <code>#include &lt;sys/wait.h&gt;</code> and have the parent call <code>wait()</code>:</p>
+<p class="crux"><strong>The problem:</strong> after a fork, we can't know who runs first. What if the parent needs the child to finish before it carries on?</p>
+<p>The parent calls <code>wait()</code>. It's like a parent waiting at the school gate: it doesn't move on until its child comes out. Add <code>#include &lt;sys/wait.h&gt;</code> and write:</p>
 <pre><code>} else {                                 // parent
     int wc = wait(NULL);                 // block until a child finishes
     printf("parent of %d (wc: %d)\n", return_child, wc);
 }</code></pre>
 <ul>
-<li>When the parent calls <code>wait()</code> it <strong>blocks</strong> (pauses) until a child finishes. Then <code>wait()</code> returns that child's <strong>PID</strong>.<span class="cite">Bilal slides, Ch 5</span></li>
-<li>The output is now <strong>deterministic</strong>: the child always prints first. Even if the parent happens to run first, it just sits in <code>wait()</code>.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-api.pdf">OSTEP §5.2</a></li>
-<li>Use <code>waitpid(pid, &amp;status, 0)</code> to wait for one <em>specific</em> child and collect its exit status.</li>
+<li>When the parent calls <code>wait()</code>, it <strong>blocks</strong> (pauses) until a child finishes.</li>
+<li>Then <code>wait()</code> returns that child's <strong>PID</strong>.<span class="cite">Bilal slides, Ch 5</span></li>
+<li>So the output is now <strong>deterministic</strong> (the same every run): the child always prints first. Even if the parent happens to run first, it just sits in <code>wait()</code>.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-api.pdf">OSTEP §5.2</a></li>
+<li>To wait for one <em>specific</em> child, use <code>waitpid(pid, &amp;status, 0)</code>. It also collects that child's exit status.</li>
 </ul>
 
 <div class="box exam"><span class="tag">This is how it's asked: "Can process A wait() for an unrelated process B?"</span>
-<strong>No.</strong> <code>wait()</code> and <code>waitpid()</code> only work within the <strong>parent–child relationship</strong>: a process can wait only for its <em>own children</em>. If A has no children, <code>wait(NULL)</code> returns <strong>−1</strong> right away. I tested it: <code>waitpid(1, NULL, 0)</code> from an ordinary program fails with <em>"No child processes"</em>. Not even a grandchild counts.</div>
+<strong>No.</strong> <code>wait()</code> and <code>waitpid()</code> only work between a <strong>parent and its child</strong>. A process can wait only for its <em>own children</em>. Not even a grandchild counts. If A has no children, <code>wait(NULL)</code> returns <strong>−1</strong> right away. I tested it: <code>waitpid(1, NULL, 0)</code> from an ordinary program fails with <em>"No child processes"</em>.</div>
 
 <h3>Zombies and orphans</h3>
+<p>When a child exits, the parent may want its exit status ("did it succeed?"). So the OS can't throw the child away at once. It has to keep a record until the parent asks.</p>
 <ul>
-<li>A child that has <strong>exited</strong> but hasn't been <strong>waited for</strong> yet is a <strong>zombie</strong> (xv6 <code>ZOMBIE</code>, Lesson 2). Its code and memory are gone, but its PCB entry stays so the parent can read the exit status.</li>
-<li>The parent's <code>wait()</code> <strong>reaps</strong> it, and only then can the OS free the entry.<span class="cite">Zafar slides, Lecture 3</span> A long-running parent that forks children and never waits fills the process list with zombies.</li>
-<li>If the <strong>parent exits first</strong>, the child becomes an <strong>orphan</strong>. On Linux it's adopted by <code>init</code> (PID 1), which reaps it when it ends. (This is general UNIX behaviour, not on the slides.)</li>
+<li>A <strong>zombie</strong> is a child that has <strong>exited</strong> but hasn't been <strong>waited for</strong> yet (xv6 <code>ZOMBIE</code>, Lesson 2). Its code and memory are gone. Only its PCB entry stays, so the parent can still read the exit status.</li>
+<li>The parent's <code>wait()</code> <strong>reaps</strong> the zombie: it collects the status, and only then can the OS free the entry.<span class="cite">Zafar slides, Lecture 3</span></li>
+<li>So a long-running parent that forks children and never waits fills the process list with zombies.</li>
+<li>An <strong>orphan</strong> is a child whose <strong>parent exited first</strong>. On Linux, <code>init</code> (PID 1) adopts it and reaps it when it ends. (This is general UNIX behaviour, not on the slides.)</li>
 </ul>
+<p class="inshort"><strong>In short:</strong> <code>wait()</code> blocks the parent until one of its own children ends, then returns that child's PID (−1 if it has no children). An exited child that nobody has waited for is a zombie; a child whose parent died first is an orphan, adopted by <code>init</code>.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">What does a parent do when it calls <code>wait()</code>, and what does <code>wait()</code> return?</p>
@@ -360,18 +392,28 @@ printf("C\n");</code></pre></div>
 
 <!-- ======================================================== -->
 <h2>From your lab: wait() and waitpid() (Lab 2, Tasks 4–6)</h2>
-<p>Task 4 added <code>wait(NULL)</code> to the parent. Task 5 made the parent fork <strong>three</strong> children, and Task 6 made it wait for each one by PID with <code>waitpid()</code>.</p>
+<ul>
+<li><strong>Task 4:</strong> the parent calls <code>wait(NULL)</code>.</li>
+<li><strong>Task 5:</strong> the parent forks <strong>three</strong> children.</li>
+<li><strong>Task 6:</strong> the parent waits for each child by PID, with <code>waitpid()</code>.</li>
+</ul>
 <figure class="labcode" data-src="Labs/Lab 2/code/task4_wait.c" data-lines="15-25" data-hl="18,22" data-caption="Task 4: the child sleeps 5 s, yet the parent still prints last, because wait() blocks it until the child exits."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%202/code/task4_wait.c">Labs/Lab 2/code/task4_wait.c</a><span class="lc-span">lines 15–25</span></div><pre><span class="ln" data-n="15">    else if (return_child == 0) // child (new process)</span><span class="ln" data-n="16">    {</span><span class="ln" data-n="17">        printf(&quot;hello, I am child (pid:%d)\n&quot;, (int) getpid());</span><span class="ln hl" data-n="18">        sleep(5); // even with a delay here, the parent still prints last</span><span class="ln" data-n="19">    }</span><span class="ln" data-n="20">    else // parent goes down this path</span><span class="ln" data-n="21">    {</span><span class="ln hl" data-n="22">        int wc = wait(NULL); // Parent waits for a child</span><span class="ln" data-n="23">        int proc_id = (int) getpid();</span><span class="ln" data-n="24">        printf(&quot;hello, I am parent of %d (wc:%d) (pid:%d)\n&quot;, return_child, wc, proc_id);</span><span class="ln" data-n="25">    }</span></pre><figcaption>Task 4: the child sleeps 5 s, yet the parent still prints last, because wait() blocks it until the child exits.</figcaption></figure>
 <pre><code>$ ./wait                                     # your Task 4 output
 Hello world (pid:15800)
 hello, I am child (pid:15801)
 hello, I am parent of 15801 (wc:15801) (pid:15800)</code></pre>
-<p>Exactly the <code>wait()</code> section above: the parent <strong>blocks</strong> in line 22 and gets back the child's PID, so <code>wc</code> = 15801 = <code>return_child</code>. You ran it again and got the same order: now it is <strong>deterministic</strong>.</p>
+<p>This is the <code>wait()</code> section above, live. The parent <strong>blocks</strong> at line 22. When the child ends, <code>wait</code> gives back the child's PID, so <code>wc</code> = 15801 = <code>return_child</code>. You ran it again and got the same order. It is now <strong>deterministic</strong>.</p>
 <figure class="labcode" data-src="Labs/Lab 2/code/task5_wait.c" data-lines="14-31" data-hl="17,19,21,29,31" data-caption="Task 5: each next fork() sits inside the parent's else branch, so only the original process reaches it."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%202/code/task5_wait.c">Labs/Lab 2/code/task5_wait.c</a><span class="lc-span">lines 14–31</span></div><pre><span class="ln" data-n="14">    if (return_child == 0) // first child</span><span class="ln" data-n="15">    {</span><span class="ln" data-n="16">        printf(&quot;[pid:%d] I am the child. My returned child = [%d] \n&quot;, (int) getpid(), return_child);</span><span class="ln hl" data-n="17">        exit(0); // stop here, do not fork further</span><span class="ln" data-n="18">    }</span><span class="ln hl" data-n="19">    else // original parent continues</span><span class="ln" data-n="20">    {</span><span class="ln hl" data-n="21">        int return_child2 = fork();</span><span class="ln" data-n="22">        if (return_child2 &lt; 0) { fprintf(stderr, &quot;fork failed\n&quot;); exit(1); }</span><span class="ln" data-n="23"> </span><span class="ln" data-n="24">        if (return_child2 == 0) // second child</span><span class="ln" data-n="25">        {</span><span class="ln" data-n="26">            printf(&quot;[pid:%d] I am the second child. My returned child2 = [%d] \n&quot;, (int) getpid(), return_child2);</span><span class="ln" data-n="27">            exit(0);</span><span class="ln" data-n="28">        }</span><span class="ln hl" data-n="29">        else // original parent continues</span><span class="ln" data-n="30">        {</span><span class="ln hl" data-n="31">            int return_child3 = fork();</span></pre><figcaption>Task 5: each next fork() sits inside the parent's else branch, so only the original process reaches it.</figcaption></figure>
-<p>Draw the tree: P0 forks child 1 (which prints and exits), then P0 alone forks child 2, then child 3. That's <strong>4 processes, 3 siblings, no grandchild</strong>, like the "two siblings" worked example. The <code>else</code> nesting is what does it: I deleted the <code>exit(0)</code> on line 17 in a copy and it still made exactly 3 children, because a child never enters the <code>else</code>. The <code>exit(0)</code> is a good safety habit, not the reason.</p>
+<p>Draw the tree:</p>
+<ol class="steps">
+<li>P0 forks child 1. Child 1 prints and exits.</li>
+<li>P0 alone forks child 2.</li>
+<li>P0 alone forks child 3.</li>
+</ol>
+<p>That's <strong>4 processes, 3 siblings, no grandchild</strong>, like the "two siblings" worked example. Why does only P0 fork? Because each next fork sits in the parent's <code>else</code> branch, and a child never enters it. I tested this: with the <code>exit(0)</code> on line 17 deleted, it still made exactly 3 children. The <code>exit(0)</code> is a good safety habit, not the reason.</p>
 <figure class="labcode" data-src="Labs/Lab 2/code/task6_wait.c" data-lines="1-9" data-hl="3-5" data-caption="Task 6 (excerpt): one waitpid() per stored child PID, so the final line prints only after all three have exited."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%202/code/task6_wait.c">Labs/Lab 2/code/task6_wait.c</a><span class="lc-span">whole file</span></div><pre><span class="ln" data-n="1">            else // after creating all 3 children</span><span class="ln" data-n="2">            {</span><span class="ln hl" data-n="3">                int wc1 = waitpid(return_child, NULL, 0);</span><span class="ln hl" data-n="4">                int wc2 = waitpid(return_child2, NULL, 0);</span><span class="ln hl" data-n="5">                int wc3 = waitpid(return_child3, NULL, 0);</span><span class="ln" data-n="6">                int proc_id = (int) getpid();</span><span class="ln" data-n="7">                printf(&quot;[pid:%d] I am parent of [%d] [%d] [%d] [wc1:%d] [wc2:%d] [wc3:%d] \n&quot;,</span><span class="ln" data-n="8">                       proc_id, return_child, return_child2, return_child3, wc1, wc2, wc3);</span><span class="ln" data-n="9">            }</span></pre><figcaption>Task 6 (excerpt): one waitpid() per stored child PID, so the final line prints only after all three have exited.</figcaption></figure>
 <pre><code>[pid:16200] I am parent of [16201] [16202] [16203] [wc1:16201] [wc2:16202] [wc3:16203]</code></pre>
-<p>One <code>wait(NULL)</code> returns after <strong>one</strong> child. To be sure all three are done you need three waits; <code>waitpid(pid, NULL, 0)</code> waits for that <em>specific</em> child and returns its PID.</p>
+<p>One <code>wait(NULL)</code> returns after <strong>one</strong> child. To be sure all three are done, you need three waits. <code>waitpid(pid, NULL, 0)</code> waits for that <em>specific</em> child and returns its PID.</p>
 <div class="labnote">Exam angle: "how many processes / which ones are siblings?" for Task 5's shape, or "what does <code>wc</code> hold?" (the reaped child's PID), or "why isn't one <code>wait()</code> enough for three children?"</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">In Task 4 the child sleeps 5 s. About how long after starting does the parent's line appear, and what is the parent doing in the meantime?</p>
@@ -411,10 +453,13 @@ hello, I am parent of 15801 (wc:15801) (pid:15800)</code></pre>
 
 <!-- ======================================================== -->
 <h2><code>exec()</code>: become a different program</h2>
+<p class="crux"><strong>The problem:</strong> <code>fork()</code> only gives you a copy of the <em>same</em> program. How do you run a <em>different</em> program, like <code>ls</code> or <code>wc</code>?</p>
+<p>You call <code>exec()</code>. It loads a new program into the process that calls it.</p>
 <ul>
-<li><code>exec()</code> <strong>does not create a new process</strong>. It <strong>replaces</strong> the current program with the code and static data of another one.</li>
-<li>The process's code, static data, heap and stack are all <strong>overwritten</strong>. The <strong>PID stays the same</strong>.</li>
-<li>If <code>exec()</code> succeeds, it <strong>never returns</strong>: the old program is gone. If it does return, something went wrong (e.g. the program wasn't found).<span class="cite">Bilal slides, Ch 5</span></li>
+<li><code>exec()</code> <strong>does not create a new process</strong>. It <strong>replaces</strong> the current program with another one (its code and static data).</li>
+<li>The process's code, static data, heap and stack are all <strong>overwritten</strong>.</li>
+<li>The <strong>PID stays the same</strong>, because it is still the same process.</li>
+<li>If <code>exec()</code> succeeds, it <strong>never returns</strong>: the old program is gone, so there is nothing to return to. If it does return, something went wrong (e.g. the program wasn't found).<span class="cite">Bilal slides, Ch 5</span></li>
 </ul>
 <p>Bilal's <code>p3.c</code> child:</p>
 <pre><code>if (rc == 0) {                                // child
@@ -426,8 +471,21 @@ hello, I am parent of 15801 (wc:15801) (pid:15800)</code></pre>
     execvp(myargs[0], myargs);   // child becomes wc
     printf("THIS LINE SHOULDN'T PRINT\n");   // never runs
 }</code></pre>
-<p>The child turns into <code>wc</code>, which prints the line, word and character counts of <code>p3.c</code> and then the filename. The last <code>printf</code> never runs because that code no longer exists in the process. Meanwhile the parent sits in <code>wait()</code> until <code>wc</code> finishes.</p>
-<p>Linux has <strong>6 variants</strong>: <code>execl</code>, <code>execlp</code>, <code>execle</code>, <code>execv</code>, <code>execvp</code>, <code>execvpe</code>. The letters tell you how they take arguments: <code>l</code> = a list of arguments, <code>v</code> = a vector (array), <code>p</code> = search the <code>PATH</code> for the program, <code>e</code> = you pass the environment too.</p>
+<p>What happens, step by step:</p>
+<ol class="steps">
+<li>The child prints "Hello, Child here".</li>
+<li>The child builds the argument list. <code>myargs[0]</code> is the program name. The last slot must be <code>NULL</code>, so <code>execvp</code> knows where the list ends.</li>
+<li><code>execvp</code> turns the child into <code>wc</code>. <code>wc</code> prints the line, word and character counts of <code>p3.c</code>, then the filename.</li>
+<li>The last <code>printf</code> never runs. That code no longer exists in the process.</li>
+<li>Meanwhile the parent sits in <code>wait()</code> until <code>wc</code> finishes.</li>
+</ol>
+<p>Linux has <strong>6 variants</strong>: <code>execl</code>, <code>execlp</code>, <code>execle</code>, <code>execv</code>, <code>execvp</code>, <code>execvpe</code>. The letters after "exec" tell you how each one takes its inputs:</p>
+<ul>
+<li><code>l</code> = the arguments as a list</li>
+<li><code>v</code> = the arguments as a vector (array)</li>
+<li><code>p</code> = search the <code>PATH</code> for the program</li>
+<li><code>e</code> = you pass the environment too</li>
+</ul>
 
 <div class="table-wrap"><table>
 <thead><tr><th></th><th><code>fork()</code></th><th><code>exec()</code></th></tr></thead>
@@ -439,6 +497,7 @@ hello, I am parent of 15801 (wc:15801) (pid:15800)</code></pre>
 
 <div class="box analogy"><span class="tag">Analogy</span>
 <code>fork()</code> is a photocopier: now there are two identical documents. <code>exec()</code> is erasing a document and writing a completely different text on the same sheet. It's the same sheet (same PID), but the content is new.</div>
+<p class="inshort"><strong>In short:</strong> <code>exec()</code> swaps the program inside the current process. Same PID, new code, data, heap and stack. On success it never returns, so any line after it runs only if it failed.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">A child calls <code>execvp()</code> successfully, and the next line is a <code>printf</code>. Does the <code>printf</code> run? Why or why not?</p>
@@ -467,7 +526,11 @@ hello, I am parent of 15801 (wc:15801) (pid:15800)</code></pre>
 
 <!-- ======================================================== -->
 <h2>From your lab: exec and argv (Lab 2, Tasks 7–9)</h2>
-<p>Task 7's child turned itself into <code>ls -l</code>. Task 8 built the argument array from the command line and ran <code>grep</code>. Task 9's <code>final.c</code> forked four children that each became a different program, like a tiny shell.</p>
+<ul>
+<li><strong>Task 7:</strong> the child turns itself into <code>ls -l</code>.</li>
+<li><strong>Task 8:</strong> the child builds its argument array from the command line and runs <code>grep</code>.</li>
+<li><strong>Task 9</strong> (<code>final.c</code>): the parent forks four children, and each becomes a different program, like a tiny shell.</li>
+</ul>
 <figure class="labcode" data-src="Labs/Lab 2/code/task7_exec.c" data-lines="14-25" data-hl="17-21,23" data-caption="Task 7: build a NULL-terminated argument array, then execvp. Line 23 runs only if exec fails."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%202/code/task7_exec.c">Labs/Lab 2/code/task7_exec.c</a><span class="lc-span">lines 14–25</span></div><pre><span class="ln" data-n="14">    else if (rc == 0) // child (new process)</span><span class="ln" data-n="15">    {</span><span class="ln" data-n="16">        printf(&quot;hello, I am child (pid:%d)\n&quot;, (int) getpid());</span><span class="ln hl" data-n="17">        char *myargs[3]; // arguments for the new program</span><span class="ln hl" data-n="18">        myargs[0] = strdup(&quot;ls&quot;);  // program: &quot;ls&quot;</span><span class="ln hl" data-n="19">        myargs[1] = strdup(&quot;-l&quot;);  // argument: &quot;-l&quot;</span><span class="ln hl" data-n="20">        myargs[2] = NULL;          // marks end of array</span><span class="ln hl" data-n="21">        execvp(myargs[0], myargs); // runs ls -l</span><span class="ln" data-n="22">        // This line is only reached if execvp fails!</span><span class="ln hl" data-n="23">        fprintf(stderr, &quot;exec failed\n&quot;);</span><span class="ln" data-n="24">        exit(1);</span><span class="ln" data-n="25">    }</span></pre><figcaption>Task 7: build a NULL-terminated argument array, then execvp. Line 23 runs only if exec fails.</figcaption></figure>
 <pre><code>$ ./exec                                     # your Task 7 output (listing trimmed)
 Hello world (pid:18035)
@@ -476,9 +539,18 @@ total 1440
 -rw-rw-r-- 1 vanodew vanodew 1410615 Aug 31 15:36 'Lab - 2.pdf'
 ...
 hello, I am parent of 18036 (wc:18036) (pid:18035)</code></pre>
-<p>This is <code>exec()</code> from the section above: <code>ls</code> ran <strong>inside process 18036</strong>, the child's own PID (no new process). "exec failed" never printed, because a successful <code>execvp</code> never returns: the code that held line 23 was replaced. The parent's <code>wait</code> returned 18036 once <code>ls</code> exited.</p>
+<p>This is <code>exec()</code> from the section above:</p>
+<ul>
+<li><code>ls</code> ran <strong>inside process 18036</strong>, the child's own PID. No new process was made.</li>
+<li>"exec failed" never printed. A successful <code>execvp</code> never returns, because the code that held line 23 was replaced.</li>
+<li>The parent's <code>wait</code> returned 18036 once <code>ls</code> exited.</li>
+</ul>
 <figure class="labcode" data-src="Labs/Lab 2/code/task8_exec.c" data-lines="8-19" data-hl="11-15" data-caption="Task 8 (excerpt): the user's argv[1] and argv[2] become grep's arguments; myargs[0] is the program name."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%202/code/task8_exec.c">Labs/Lab 2/code/task8_exec.c</a><span class="lc-span">lines 8–19</span></div><pre><span class="ln" data-n="8">    else if (rc == 0) // child (new process)</span><span class="ln" data-n="9">    {</span><span class="ln" data-n="10">        printf(&quot;hello, I am child (pid:%d) \n&quot;, (int) getpid());</span><span class="ln hl" data-n="11">        char *myargs[4];                 // arguments for the new program</span><span class="ln hl" data-n="12">        myargs[0] = strdup(&quot;grep&quot;);      // program: &quot;grep&quot;</span><span class="ln hl" data-n="13">        myargs[1] = strdup(argv[1]);     // argument: pattern typed by user</span><span class="ln hl" data-n="14">        myargs[2] = strdup(argv[2]);     // argument: file typed by user</span><span class="ln hl" data-n="15">        myargs[3] = NULL;                // marks end of array</span><span class="ln" data-n="16">        execvp(myargs[0], myargs);</span><span class="ln" data-n="17">        fprintf(stderr, &quot;exec failed\n&quot;);</span><span class="ln" data-n="18">        exit(1);</span><span class="ln" data-n="19">    }</span></pre><figcaption>Task 8 (excerpt): the user's argv[1] and argv[2] become grep's arguments; myargs[0] is the program name.</figcaption></figure>
-<p>With <code>./exec pid exec.c</code>: <code>argc</code> = 3, so <code>myargs</code> = <code>{"grep", "pid", "exec.c", NULL}</code>. Note the array has <strong>4</strong> slots for 3 strings: the last must be <code>NULL</code> so <code>execvp</code> knows where the list ends. <code>myargs[0]</code> becomes the new program's own <code>argv[0]</code>.</p>
+<p>Example: you type <code>./exec pid exec.c</code>. Then <code>argc</code> = 3, and <code>myargs</code> = <code>{"grep", "pid", "exec.c", NULL}</code>.</p>
+<ul>
+<li>The array has <strong>4</strong> slots for 3 strings. The last must be <code>NULL</code>, so <code>execvp</code> knows where the list ends.</li>
+<li><code>myargs[0]</code> becomes the new program's own <code>argv[0]</code>.</li>
+</ul>
 <figure class="labcode" data-src="Labs/Lab 2/code/task9_final.c" data-lines="19-28" data-hl="20,22,25-27" data-caption="final.c, child 1 of 4: fork, and in the child build the arguments and exec. exit(1) runs only if exec fails."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%202/code/task9_final.c">Labs/Lab 2/code/task9_final.c</a><span class="lc-span">lines 19–28</span></div><pre><span class="ln" data-n="19">    // ---------- Child 1: grep ----------</span><span class="ln hl" data-n="20">    int pid1 = fork();</span><span class="ln" data-n="21">    if (pid1 &lt; 0) { fprintf(stderr, &quot;fork failed\n&quot;); exit(1); }</span><span class="ln hl" data-n="22">    else if (pid1 == 0)</span><span class="ln" data-n="23">    {</span><span class="ln" data-n="24">        printf(&quot;Child 1 (pid:%d) running grep\n&quot;, (int) getpid());</span><span class="ln hl" data-n="25">        char *args1[4] = { strdup(&quot;grep&quot;), strdup(&quot;pid&quot;), strdup(filename), NULL };</span><span class="ln hl" data-n="26">        execvp(args1[0], args1);</span><span class="ln hl" data-n="27">        fprintf(stderr, &quot;exec failed for grep\n&quot;); exit(1);</span><span class="ln" data-n="28">    }</span></pre><figcaption>final.c, child 1 of 4: fork, and in the child build the arguments and exec. exit(1) runs only if exec fails.</figcaption></figure>
 <figure class="labcode" data-src="Labs/Lab 2/code/task9_final.c" data-lines="63-69" data-hl="64-67" data-caption="The parent falls through all four forks, then reaps each child by PID."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%202/code/task9_final.c">Labs/Lab 2/code/task9_final.c</a><span class="lc-span">lines 63–69</span></div><pre><span class="ln" data-n="63">    // ---------- Parent waits for all four children ----------</span><span class="ln hl" data-n="64">    int wc1 = waitpid(pid1, NULL, 0);</span><span class="ln hl" data-n="65">    int wc2 = waitpid(pid2, NULL, 0);</span><span class="ln hl" data-n="66">    int wc3 = waitpid(pid3, NULL, 0);</span><span class="ln hl" data-n="67">    int wc4 = waitpid(pid4, NULL, 0);</span><span class="ln" data-n="68">    printf(&quot;Parent (pid:%d) done. Children finished: %d %d %d %d\n&quot;,</span><span class="ln" data-n="69">           (int) getpid(), wc1, wc2, wc3, wc4);</span></pre><figcaption>The parent falls through all four forks, then reaps each child by PID.</figcaption></figure>
 <pre><code>$ ./final "abra ca dabra" io_redir.c         # your Task 9 output (cat's part trimmed)
@@ -491,8 +563,9 @@ abra ca dabra
 ...
 24 105 702 io_redir.c
 Parent (pid:21118) done. Children finished: 21119 21120 21121 21122</code></pre>
-<p>Only the parent reaches each <code>fork()</code>: every child either becomes another program or hits <code>exit(1)</code>. So there are <strong>5 processes</strong> (1 parent + 4 siblings). The four children run at the same time, so their outputs can come in any order (echo's line came first here); only the parent's last line is sure to be last.</p>
-<div class="labnote">One surprise to know: those "Child N running…" lines appear because a terminal flushes <code>printf</code> at each newline. I ran your <code>final.c</code> with output redirected to a file, and those four lines were <strong>missing</strong>: <code>printf</code> was still holding them in the process's memory when <code>exec</code> replaced it. If an exam says "printed to a terminal", this is why.</div>
+<p>How many processes? Only the parent reaches each <code>fork()</code>, because every child either becomes another program or hits <code>exit(1)</code>. So there are <strong>5 processes</strong>: 1 parent + 4 siblings.</p>
+<p>The four children run at the same time, so their outputs can come in any order (echo's line came first here). Only the parent's last line is sure to be last.</p>
+<div class="labnote">One surprise to know. <code>printf</code> doesn't always write at once: it can hold text in the process's memory first. A terminal makes it write at each newline, so the "Child N running…" lines appear. I ran your <code>final.c</code> with output redirected to a file, and those four lines were <strong>missing</strong>. <code>printf</code> was still holding them when <code>exec</code> replaced the process's memory. That's why exam questions say "printed to a terminal".</div>
 <div class="labnote">Exam angle: "write the child code that runs <code>wc file.txt</code> with <code>execvp</code>" (array + <code>NULL</code> + exec + error line), or "what is the PID of the program after exec?" (unchanged), or "how many processes does final.c create?"</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">You run Task 8 as <code>./exec main final.c</code>. Write the <code>myargs</code> array the child builds, and give <code>argc</code>.</p>
@@ -537,7 +610,9 @@ Parent (pid:21118) done. Children finished: 21119 21120 21121 21122</code></pre>
 
 <!-- ======================================================== -->
 <h2>Why are fork and exec separate?</h2>
-<p>Windows uses one call (<code>CreateProcess()</code>) to make a process and start a program. UNIX splits it in two, and that gap matters: <strong>after <code>fork()</code> but before <code>exec()</code>, the child can run any code it likes</strong> to set up the new program's environment.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-api.pdf">OSTEP §5.4</a> This is exactly how a shell works:</p>
+<p class="crux"><strong>The problem:</strong> Windows makes a process and starts a program in one call (<code>CreateProcess()</code>). Why does UNIX use two calls?</p>
+<p>Because of the gap between them. <strong>After <code>fork()</code> but before <code>exec()</code>, the child can run any code it likes.</strong> It uses that moment to set up the new program's surroundings, for example where its output goes.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-api.pdf">OSTEP §5.4</a></p>
+<p>This is exactly how a shell works. The <strong>shell</strong> is just a user program that shows a prompt and runs the commands you type:</p>
 <ol class="steps">
 <li>The shell shows a prompt and you type a command, e.g. <code>ls -l</code>.</li>
 <li>The shell calls <code>fork()</code> to make a child.</li>
@@ -556,15 +631,25 @@ if (rc == 0) {                                     // child
     wait(NULL);                                    // shell waits, then re-prompts
 }</code></pre>
 <div class="box key"><span class="tag">The file-descriptor trick</span>
-<code>open()</code> always returns the <strong>lowest free</strong> file descriptor. Closing fd 1 (stdout) and then opening a file means the file <strong>becomes</strong> fd 1. <code>ls</code> is unmodified: it writes to "standard output" as usual, and that now goes to the file. (I compiled this and checked that <code>out.txt</code> contains the listing.)</div>
-<p><strong>Pipes</strong> (<code>grep foo file | wc -l</code>) use the same idea with the <code>pipe()</code> system call. The first process's output is connected to an in-kernel queue, and the next process's input is connected to the same queue.<span class="cite">Zafar slides, Lecture 3</span></p>
+A <strong>file descriptor</strong> (fd) is a small number a process uses to name an open file. fd 0 is the keyboard input, fd 1 is the screen output, fd 2 is error output.
+<ol>
+<li><code>open()</code> always returns the <strong>lowest free</strong> file descriptor.</li>
+<li>So close fd 1 (stdout) first. Now 1 is the lowest free number.</li>
+<li>Then open the file. It <strong>becomes</strong> fd 1.</li>
+<li><code>ls</code> is unchanged. It writes to "standard output" (fd 1) as usual, and that now goes to the file.</li>
+</ol>
+This only works because the child can run this code <em>between</em> fork and exec. And exec keeps open file descriptors, so <code>ls</code> inherits the new fd 1. (I compiled this and checked that <code>out.txt</code> contains the listing.)</div>
+<p><strong>Pipes</strong> (<code>grep foo file | wc -l</code>) use the same idea with the <code>pipe()</code> system call. The first process's output goes into a queue inside the kernel. The next process's input reads from that same queue.<span class="cite">Zafar slides, Lecture 3</span></p>
 
 <h3>Beyond the big three (Zafar's slides)</h3>
 <ul>
-<li><code>kill()</code> sends a <strong>signal</strong> to a process: <code>SIGINT</code> (what Ctrl-C sends), <code>SIGKILL</code> (forced kill, can't be caught), <code>SIGSTOP</code>/<code>SIGCONT</code> (pause/resume). A process can install a <strong>signal handler</strong> for most signals.</li>
+<li>A <strong>signal</strong> is a short message the OS delivers to a process, like a tap on the shoulder. <code>kill()</code> sends one.</li>
+<li>Common signals: <code>SIGINT</code> (what Ctrl-C sends), <code>SIGKILL</code> (forced kill, can't be caught), <code>SIGSTOP</code>/<code>SIGCONT</code> (pause/resume).</li>
+<li>A process can install a <strong>signal handler</strong> (its own function to run) for most signals.</li>
 <li>Each process belongs to a <strong>user</strong>. A normal user can only signal their own processes. <strong>root</strong> (the superuser) can control any process.</li>
 <li>Tools: <code>ps</code> (list processes), <code>top</code> (live view), <code>kill -9 &lt;pid&gt;</code>, <code>killall &lt;name&gt;</code>.</li>
 </ul>
+<p class="inshort"><strong>In short:</strong> fork and exec are separate so the child can set things up in between. A shell does fork → (child) redirect, then exec → (parent) wait. Redirection works because <code>open()</code> takes the lowest free fd.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">List the four steps a shell takes to run a command like <code>ls -l</code>.</p>
@@ -593,7 +678,8 @@ if (rc == 0) {                                     // child
 
 <!-- ======================================================== -->
 <h2>C you must be able to write</h2>
-<p>Bilal's Quiz 1 asked for small C programs and a Makefile written on paper. Here are the three patterns with fresh examples. They're compiled and tested.</p>
+<p class="crux"><strong>The problem:</strong> the exam may ask you to write small C programs and a Makefile on paper, with no compiler to catch mistakes.</p>
+<p>Bilal's Quiz 1 did exactly this. Here are the three patterns with fresh examples. They're compiled and tested.</p>
 
 <h3>1 · Command-line arguments: <code>argc</code>, <code>argv</code>, <code>atoi</code></h3>
 <pre><code>// sumto.c   usage: ./sumto 5   →   1 + ... + 5 = 15
@@ -613,7 +699,7 @@ int main(int argc, char *argv[])
     printf("1 + ... + %d = %d\n", n, sum);
     return 0;
 }</code></pre>
-<p class="small"><code>argc</code> counts the program name too: <code>./sumto 5</code> has <code>argc = 2</code>, <code>argv[0] = "./sumto"</code>, <code>argv[1] = "5"</code>. Every <code>argv</code> entry is a <em>string</em>, so you need <code>atoi</code> to get a number.</p>
+<p class="small"><code>argc</code> counts the program name too. So <code>./sumto 5</code> has <code>argc = 2</code>, <code>argv[0] = "./sumto"</code>, <code>argv[1] = "5"</code>. Every <code>argv</code> entry is a <em>string</em> (text). So you need <code>atoi</code> to turn <code>"5"</code> into the number 5.</p>
 
 <h3>2 · Reading a file line by line: <code>fopen</code> / <code>fgets</code> / <code>fclose</code></h3>
 <pre><code>// countlines.c   usage: ./countlines notes.txt
@@ -638,7 +724,7 @@ int main(int argc, char *argv[])
     printf("%s has %d lines\n", argv[1], count);
     return 0;
 }</code></pre>
-<p class="small">To print only the first <em>n</em> lines, change the loop condition to <code>count &lt; n &amp;&amp; fgets(...) != NULL</code> and <code>printf("%s", line)</code> inside it. <code>fgets</code> keeps the <code>\n</code>, so don't add another.</p>
+<p class="small">To print only the first <em>n</em> lines: change the loop condition to <code>count &lt; n &amp;&amp; fgets(...) != NULL</code>, and put <code>printf("%s", line)</code> inside the loop. <code>fgets</code> keeps the <code>\n</code>, so don't add another.</p>
 
 <h3>3 · A Makefile with <code>all</code> and <code>run</code></h3>
 <pre><code>CC = gcc
@@ -659,7 +745,13 @@ run: all
 clean:
 	rm -f sumto countlines</code></pre>
 <div class="box trap"><span class="tag">Makefile rules to remember</span>
-Format: <code>target: dependencies</code>, then the command on the next line, <strong>indented with a TAB</strong> (spaces cause "missing separator"). <code>make</code> builds the <strong>first</strong> target (<code>all</code>). <code>run: all</code> means "build everything first, then run". <code>make run</code> compiles anything that changed and then runs each program.</div>
+<ul>
+<li>Format: <code>target: dependencies</code>, then the command on the next line.</li>
+<li>The command must be <strong>indented with a TAB</strong>. Spaces cause a "missing separator" error.</li>
+<li>A plain <code>make</code> builds the <strong>first</strong> target (here <code>all</code>).</li>
+<li><code>run: all</code> means "build everything first, then run". So <code>make run</code> compiles anything that changed, then runs each program.</li>
+</ul></div>
+<p class="inshort"><strong>In short:</strong> <code>argc</code> includes the program name and every <code>argv</code> is a string (use <code>atoi</code>). Always check <code>fopen</code> for <code>NULL</code>. Makefile commands start with a TAB.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">You run <code>./area 4 7</code>. What are <code>argc</code>, <code>argv[0]</code> and <code>argv[2]</code>, and how do you turn <code>argv[1]</code> into an <code>int</code>?</p>

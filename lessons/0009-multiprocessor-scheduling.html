@@ -15,7 +15,7 @@
 
 <p class="kicker">Lesson 9 · CPU virtualization, the last piece</p>
 <h1>Scheduling on many CPUs</h1>
-<p class="lede">Every policy so far assumed one CPU. Put two or more cores on a chip and three new problems show up: caches that disagree, shared queues that need locks, and jobs that run faster if they stay where they were.</p>
+<p class="lede">Every policy so far assumed one CPU. Now put two or more CPUs on one chip. Three new problems show up. Caches can disagree. Shared queues need locks. And jobs run faster if they stay on the CPU they used last time.</p>
 
 <div class="box key"><span class="tag">The one-sentence version</span>
 A multiprocessor scheduler must pick between <strong>one shared queue</strong> (SQMS: simple, but needs a lock and moves jobs around) and <strong>one queue per CPU</strong> (MQMS: scalable and cache-friendly, but the queues can become unbalanced, so jobs have to be <strong>migrated</strong>).<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-multi.pdf">OSTEP §10</a></div>
@@ -26,20 +26,23 @@ A multiprocessor scheduler must pick between <strong>one shared queue</strong> (
 <div class="rc"><p class="q">Stride, large number 6,000. X has 30 tickets, Y has 20 (X listed first, ties to X). Give the first 5 picks. (Lesson 7)</p><div class="a">Strides: X 200, Y 300. (0,0) X → (200,0) Y → (200,300) X → (400,300) Y → (400,600) X.<br>Picks: <strong>X Y X Y X</strong>, i.e. 3 : 2 = 30 : 20.</div></div>
 </div>
 
-<p>Why bother? A <strong>multicore</strong> chip packs several CPU cores onto one chip. But adding CPUs does <em>not</em> make a single ordinary program faster. To use more cores, a program has to be rewritten to run in parallel, using <strong>threads</strong>. The OS's job is to place all those runnable jobs onto the cores well.<span class="cite">Bilal slides, Ch 10 p.2</span></p>
+<p>Why bother? A <strong>multicore</strong> chip packs several CPU cores onto one chip. But more CPUs do <em>not</em> make one ordinary program faster. A normal C program uses only one CPU. To use more cores, the program must be rewritten to run in parallel, using <strong>threads</strong>. The OS then has a new job: place all the runnable jobs onto the cores well.<span class="cite">Bilal slides, Ch 10 p.2</span></p>
+<p class="crux"><strong>The problem:</strong> OSTEP's crux asks "How should the OS schedule jobs on multiple CPUs? What new problems arise?"<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-multi.pdf">OSTEP §10</a></p>
 
 <!-- ======================================================== -->
 <h2>Background · caches</h2>
-<p>A <strong>cache</strong> is a small, fast memory that holds copies of popular data from the big, slow <strong>main memory</strong>. If the data is already in the cache (a <em>hit</em>), the CPU gets it quickly. Caches work because programs have <strong>locality</strong>:</p>
+<p class="crux"><strong>The problem:</strong> each CPU keeps its own fast copy of data. What goes wrong when several CPUs share one memory?</p>
+<p>First, what a cache is. <strong>Main memory</strong> is big but slow. A <strong>cache</strong> is a small, fast memory that keeps copies of popular data from main memory. When the CPU needs data, it checks the cache first. If the data is there (a <em>hit</em>), the CPU gets it quickly.</p>
+<p>How does the cache guess what to keep? Programs tend to reuse data in predictable ways. This is called <strong>locality</strong>, and it comes in two kinds:</p>
 <div class="table-wrap"><table>
 <tbody>
 <tr><td><strong>Temporal locality</strong></td><td>Data used once is likely to be used again <em>soon</em> (e.g. a loop counter).</td></tr>
 <tr><td><strong>Spatial locality</strong></td><td>Data <em>near</em> something just used is likely to be used next (e.g. walking through an array).</td></tr>
 </tbody></table></div>
-<p>By keeping data in the cache, the system makes slow memory look fast. On one CPU this is simple. With several CPUs, <strong>each CPU has its own private cache, but they all share one main memory</strong>. That's where the trouble starts.</p>
+<p>So the cache makes slow memory look fast. On one CPU this is simple. With several CPUs, it gets harder. <strong>Each CPU has its own private cache, but they all share one main memory</strong>. That's where the trouble starts.</p>
 
 <h3>Problem 1 · Cache coherence</h3>
-<p>Follow address 1, which holds value <code>D</code>:<span class="cite">Bilal slides, Ch 10 pp.6–7</span></p>
+<p>Two caches can hold two different versions of the same data. Follow address 1, which holds value <code>D</code>:<span class="cite">Bilal slides, Ch 10 pp.6–7</span></p>
 <figure>
 <svg viewBox="0 0 640 250" role="img" aria-label="CPU 0 has updated D to D-prime in its cache, but memory still holds D, so CPU 1 reads the stale value D">
   <defs><marker id="a9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="var(--ink-2)"/></marker></defs>
@@ -65,10 +68,15 @@ A multiprocessor scheduler must pick between <strong>one shared queue</strong> (
 </svg>
 <figcaption>1. CPU 0 reads D from address 1 into its cache. 2. It updates D to D′, but only in its own cache (memory is written later, to save time). 3. The program is then scheduled on CPU 1, which reads address 1 and gets the <strong>old</strong> value D. Wrong answer.</figcaption>
 </figure>
-<p><strong>Cache coherence</strong> means keeping the copies of shared data in several caches consistent. The hardware fixes it with <strong>bus snooping</strong>: every cache watches ("snoops on") the shared bus. When it sees another CPU write to an address it holds, it either <strong>invalidates</strong> its copy (throws it away) or <strong>updates</strong> it.<span class="cite">Bilal slides, Ch 10 p.8</span> This all happens in hardware, invisible to the OS and to your code.</p>
+<p><strong>Cache coherence</strong> means keeping all the cached copies of the same data in agreement. The hardware solves it with <strong>bus snooping</strong>. The <strong>bus</strong> is the shared wire that connects every cache to memory. Each cache watches ("snoops on") that bus. When it sees another CPU write to an address it holds, it does one of two things:<span class="cite">Bilal slides, Ch 10 p.8</span></p>
+<ul>
+<li><strong>Invalidate</strong>: throw its copy away (it will fetch the new value next time).</li>
+<li><strong>Update</strong>: copy in the new value.</li>
+</ul>
+<p>This all happens in hardware. The OS and your code never see it.</p>
 
 <h3>Problem 2 · Synchronization</h3>
-<p>Coherence keeps single values consistent, but it does <em>not</em> make multi-step updates safe. When code on several CPUs touches a shared data structure, you still need <strong>locks</strong> (mutual exclusion). Here's the slides' list-pop routine:<span class="cite">Bilal slides, Ch 10 pp.9–10</span></p>
+<p>Coherence keeps each <em>single</em> value correct. But many updates take several steps. Coherence does <em>not</em> stop two CPUs from interleaving those steps. So when code on several CPUs changes a shared data structure, you still need <strong>locks</strong>. A lock gives <strong>mutual exclusion</strong>: only one CPU at a time may run the protected code. Here's the slides' list-pop routine:<span class="cite">Bilal slides, Ch 10 pp.9–10</span></p>
 <pre><code>int List_Pop() {
     <span class="hl">lock(&amp;m);</span>
     Node_t *tmp = head;        // remember old head
@@ -78,17 +86,33 @@ A multiprocessor scheduler must pick between <strong>one shared queue</strong> (
     <span class="hl">unlock(&amp;m);</span>
     return value;
 }</code></pre>
-<p>Without the lock, thread 1 on CPU 0 and thread 2 on CPU 1 can both run <code>tmp = head</code> at the <em>same instant</em>. Both grab the same node, both return the same value, and both call <code>free(tmp)</code> on it, which is a <strong>double free</strong> (Lesson 11 shows why that crashes). On one CPU this race needed an unlucky interrupt; on many CPUs it's <em>real</em> parallelism, so it happens far more easily.</p>
-<p>The catch: locks cost time. As the number of CPUs grows, they spend more and more time waiting for the same lock. Keep that in mind; it's SQMS's first weakness.</p>
+<p>What goes wrong without the lock? Thread 1 runs on CPU 0 and thread 2 runs on CPU 1:</p>
+<ol class="steps">
+<li>Both run <code>tmp = head</code> at the <em>same instant</em>. Both now point at the same node.</li>
+<li>Both read the same value and return it. One value comes out twice.</li>
+<li>Both call <code>free(tmp)</code> on the same node. That is a <strong>double free</strong> (Lesson 11 shows why that crashes).</li>
+</ol>
+<p>On one CPU, this race needed an unlucky interrupt. On many CPUs, the two threads truly run at the same time, so it happens far more easily.</p>
+<p>The catch: locks cost time. As the number of CPUs grows, they spend more and more time waiting for the same lock. Keep that in mind. It's SQMS's first weakness.</p>
 
 <h3>Problem 3 · Cache affinity</h3>
-<p>While a process runs on a CPU, it fills that CPU's cache (and TLB) with its data. If it runs on the <strong>same</strong> CPU next time, much of that state is still there ("warm"), so it runs faster. If it moves to a different CPU, it starts "cold" and must reload everything.<span class="cite">Bilal slides, Ch 10 p.12</span></p>
+<p>While a process runs on a CPU, it fills that CPU's cache (and TLB) with its data. Next time it runs, where should it go?<span class="cite">Bilal slides, Ch 10 p.12</span></p>
+<ul>
+<li><strong>Same CPU</strong>: much of its data is still in the cache ("warm"). It runs faster.</li>
+<li><strong>Different CPU</strong>: that cache holds none of its data ("cold"). It must reload everything. It still runs correctly, just slower.</li>
+</ul>
 <div class="box key"><span class="tag">Rule</span>
 <strong>Cache affinity</strong>: keep a process on the same CPU whenever possible. A multiprocessor scheduler should take cache affinity into account when it decides where to run a job.</div>
 <div class="box analogy"><span class="tag">Analogy</span>
 A cook who always works at the same station knows where every pan and spice is (warm cache). Move them to a new station each hour and they waste time hunting for things (cold cache), even though they're just as skilled.</div>
 
-<p>So the three challenges the slides list are: <strong>synchronization</strong> (protect shared structures with locks), <strong>cache affinity</strong> (reuse warm caches), and <strong>load balancing</strong> (keep all CPUs evenly busy).<span class="cite">Bilal slides, Ch 10 p.4</span> Now let's build schedulers.</p>
+<p>So the slides list three challenges:<span class="cite">Bilal slides, Ch 10 p.4</span></p>
+<ul>
+<li><strong>Synchronization</strong>: protect shared structures with locks.</li>
+<li><strong>Cache affinity</strong>: reuse warm caches.</li>
+<li><strong>Load balancing</strong>: keep all CPUs evenly busy.</li>
+</ul>
+<p class="inshort"><strong>In short:</strong> each CPU has a private cache over one shared memory. Hardware keeps the caches coherent (bus snooping), but multi-step updates still need locks, and jobs run faster if they stay on the same CPU.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Define temporal locality and spatial locality, with an example of each.</p><div class="a"><strong>Temporal</strong>: data used once is likely to be used again <em>soon</em> (a loop counter). <strong>Spatial</strong>: data <em>near</em> something just used is likely to be used next (walking through an array).</div></div>
@@ -134,6 +158,7 @@ A cook who always works at the same station knows where every pan and spice is (
 
 <!-- ======================================================== -->
 <h2>Approach 1 · Single-queue (SQMS)</h2>
+<p class="crux"><strong>The problem:</strong> what is the simplest way to share jobs among many CPUs?</p>
 <figure>
 <svg viewBox="0 0 640 190" role="img" aria-label="SQMS: one shared queue A to E feeds four CPUs through a single lock">
   <defs><marker id="b9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="var(--ink-2)"/></marker></defs>
@@ -160,19 +185,20 @@ A cook who always works at the same station knows where every pan and spice is (
 </svg>
 <figcaption>All jobs sit in one globally shared queue. Whenever a CPU needs work, it locks the queue and takes the next job.</figcaption>
 </figure>
-<p><strong>Single-Queue Multiprocessor Scheduling (SQMS)</strong> reuses whatever single-CPU policy you already have (RR, MLFQ…). It's very simple. But it has two problems:<span class="cite">Bilal slides, Ch 10 p.13</span></p>
+<p>The simplest idea: put all jobs in one queue, and let every CPU take from it. This is <strong>Single-Queue Multiprocessor Scheduling (SQMS)</strong>. It reuses whatever single-CPU policy you already have (RR, MLFQ…). With two CPUs, the policy just picks the best two jobs instead of one. Very simple. But it has two problems:<span class="cite">Bilal slides, Ch 10 p.13</span></p>
 <ol class="steps">
-<li><strong>Lack of scalability (lock contention).</strong> Every CPU must take the same lock to touch the queue. With more CPUs, more of them sit waiting for that one lock, and the scheduler itself becomes the bottleneck.</li>
-<li><strong>Poor cache affinity.</strong> Each CPU just grabs the next job, so jobs bounce from CPU to CPU, starting cold every time.</li>
+<li><strong>Lack of scalability (lock contention).</strong> Every CPU must take the same lock to touch the queue. Add more CPUs and more of them sit waiting for that one lock. The scheduler itself becomes the bottleneck.</li>
+<li><strong>Poor cache affinity.</strong> Each CPU just grabs the next job. So jobs bounce from CPU to CPU and start cold every time.</li>
 </ol>
-<p>Here's what problem 2 looks like with five jobs on four CPUs. Each time slice, every CPU takes the next job from the shared queue:</p>
+<p>Here's problem 2 with five jobs on four CPUs. Each time slice, every CPU takes the next job from the shared queue:</p>
 <div data-gantt='{"lanes":[{"label":"CPU 0","segs":[["A",0,1],["E",1,2],["D",2,3],["C",3,4],["B",4,5],["A",5,6],["E",6,7],["D",7,8],["C",8,9],["B",9,10]]},{"label":"CPU 1","segs":[["B",0,1],["A",1,2],["E",2,3],["D",3,4],["C",4,5],["B",5,6],["A",6,7],["E",7,8],["D",8,9],["C",9,10]]},{"label":"CPU 2","segs":[["C",0,1],["B",1,2],["A",2,3],["E",3,4],["D",4,5],["C",5,6],["B",6,7],["A",7,8],["E",8,9],["D",9,10]]},{"label":"CPU 3","segs":[["D",0,1],["C",1,2],["B",2,3],["A",3,4],["E",4,5],["D",5,6],["C",6,7],["B",7,8],["A",8,9],["E",9,10]]}],"end":10}'></div>
 <p class="small">Follow job A (blue): CPU 0 → CPU 1 → CPU 2 → CPU 3 → CPU 0… It never runs on the same CPU twice in a row, so it never benefits from a warm cache. Every job does the same.</p>
 
 <h3>The fix: an affinity mechanism</h3>
-<p>Most SQMS schedulers add an <strong>affinity mechanism</strong>: try to keep each job on the same CPU, and move only a few jobs to balance the load.<span class="cite">Bilal slides, Ch 10 p.14</span></p>
+<p>Most SQMS schedulers add an <strong>affinity mechanism</strong>. It tries to keep each job on the same CPU. It moves only a few jobs, just enough to balance the load.<span class="cite">Bilal slides, Ch 10 p.14</span></p>
 <div data-gantt='{"lanes":[{"label":"CPU 0","segs":[["A",0,1],["E",1,2],["A",2,3],["A",3,4],["A",4,5],["A",5,6],["E",6,7],["A",7,8],["A",8,9],["A",9,10]]},{"label":"CPU 1","segs":[["B",0,1],["B",1,2],["E",2,3],["B",3,4],["B",4,5],["B",5,6],["B",6,7],["E",7,8],["B",8,9],["B",9,10]]},{"label":"CPU 2","segs":[["C",0,1],["C",1,2],["C",2,3],["E",3,4],["C",4,5],["C",5,6],["C",6,7],["C",7,8],["E",8,9],["C",9,10]]},{"label":"CPU 3","segs":[["D",0,1],["D",1,2],["D",2,3],["D",3,4],["E",4,5],["D",5,6],["D",6,7],["D",7,8],["D",8,9],["E",9,10]]}],"end":10}'></div>
 <p class="small">A, B, C and D now stay on their own CPUs (warm caches). Only E (pink) migrates from CPU to CPU, filling in the gaps. You could pick a different job to migrate next time, to be fair. Downside: implementing this is <strong>complex</strong>, and it still doesn't fix the lock problem.</p>
+<p class="inshort"><strong>In short:</strong> SQMS = one shared queue. Simple, and load balances itself, but it suffers <strong>lock contention</strong> (poor scalability) and <strong>poor cache affinity</strong>.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">What are the two problems of single-queue multiprocessor scheduling (SQMS)?</p><div class="a">(1) <strong>Lack of scalability</strong>: every CPU needs the same queue lock, so <strong>lock contention</strong> grows with the number of CPUs. (2) <strong>Poor cache affinity</strong>: jobs bounce from CPU to CPU and start cold.</div></div>
@@ -199,23 +225,24 @@ A cook who always works at the same station knows where every pan and spice is (
 
 <!-- ======================================================== -->
 <h2>Approach 2 · Multi-queue (MQMS)</h2>
-<p><strong>Multi-Queue Multiprocessor Scheduling (MQMS)</strong> gives every CPU its <strong>own</strong> queue.<span class="cite">Bilal slides, Ch 10 p.15</span></p>
+<p class="crux"><strong>The problem:</strong> how do we get rid of SQMS's single lock and its job-bouncing?</p>
+<p>Give every CPU its <strong>own</strong> queue. This is <strong>Multi-Queue Multiprocessor Scheduling (MQMS)</strong>.<span class="cite">Bilal slides, Ch 10 p.15</span> Think of a supermarket with one checkout line per till, instead of one long shared line.</p>
 <ul>
-<li>Each queue follows its own scheduling discipline (e.g. round robin).</li>
-<li>When a job enters the system, it's placed on <strong>exactly one</strong> queue (randomly, or on the one with the fewest jobs), and stays there.</li>
-<li>Each CPU schedules its own queue independently, so there's no shared information and no global lock to fight over.</li>
+<li>Each queue follows its own scheduling policy (e.g. round robin).</li>
+<li>A new job is placed on <strong>exactly one</strong> queue (at random, or on the one with the fewest jobs). It stays there.</li>
+<li>Each CPU schedules its own queue on its own. Nothing is shared, so there is no global lock to fight over.</li>
 </ul>
 <p>Example: two CPUs, Q0 holds A and C, Q1 holds B and D, each running RR:</p>
 <div data-gantt='{"lanes":[{"label":"CPU 0","segs":[["A",0,2],["C",2,4],["A",4,6],["C",6,8],["A",8,10],["C",10,12]]},{"label":"CPU 1","segs":[["B",0,2],["D",2,4],["B",4,6],["D",6,8],["B",8,10],["D",10,12]]}],"end":12}'></div>
 <p class="small">A and C never leave CPU 0; B and D never leave CPU 1. Caches stay warm.</p>
 
 <div class="box exam"><span class="tag">This is how it's asked: "How does MQMS fix SQMS's two problems?"</span>
-<p style="margin:.2rem 0"><strong>Lock contention / scalability:</strong> each CPU has its own queue with its own lock, so CPUs don't compete for one global lock. Adding CPUs adds queues, and the design scales.</p>
-<p style="margin:.2rem 0"><strong>Cache affinity:</strong> a job stays on the same queue, so it keeps running on the same CPU and reuses its warm cache, for free.</p>
+<p style="margin:.2rem 0"><strong>Lock contention / scalability:</strong> each CPU has its own queue with its own lock. CPUs don't compete for one global lock. Adding CPUs adds queues, so the design scales.</p>
+<p style="margin:.2rem 0"><strong>Cache affinity:</strong> a job stays on the same queue. So it keeps running on the same CPU and reuses its warm cache, for free.</p>
 <p style="margin:.2rem 0">Then add the catch: <strong>MQMS introduces a new problem, load imbalance.</strong></p></div>
 
 <h3>The catch · load imbalance</h3>
-<p>Suppose job C finishes. Q0 now holds only A, while Q1 still holds B and D:<span class="cite">Bilal slides, Ch 10 p.18</span></p>
+<p>Jobs finish at different times, so one queue can end up with more jobs than another. This is <strong>load imbalance</strong>. Suppose job C finishes. Q0 now holds only A. Q1 still holds B and D:<span class="cite">Bilal slides, Ch 10 p.18</span></p>
 <div data-gantt='{"lanes":[{"label":"CPU 0","segs":[["A",0,12]]},{"label":"CPU 1","segs":[["B",0,2],["D",2,4],["B",4,6],["D",6,8],["B",8,10],["D",10,12]]}],"end":12}'></div>
 <p class="small">A gets a whole CPU; B and D each get half a CPU. <strong>A gets twice as much CPU as B and D.</strong> Unfair.</p>
 <p>Worse, suppose A finishes too:</p>
@@ -223,25 +250,32 @@ A cook who always works at the same station knows where every pan and spice is (
 <p class="small"><strong>CPU 0 sits idle</strong> while two jobs wait on CPU 1. Half the machine is wasted.</p>
 
 <h3>The fix · migration</h3>
-<p>The answer is to <strong>move jobs between CPUs</strong>, called <strong>migration</strong>. In the idle case it's easy: move B (or D) to CPU 0.</p>
+<p>The answer is to move jobs from one CPU's queue to another's. This is called <strong>migration</strong>. In the idle case it's easy: move B (or D) to CPU 0.</p>
 <div data-gantt='{"lanes":[{"label":"CPU 0","segs":[["D",0,12]]},{"label":"CPU 1","segs":[["B",0,12]]}],"end":12}'></div>
 <p class="small">After migrating D to Q0, each CPU has one job. Balanced.</p>
-<p>The <strong>trickier case</strong> is A alone on CPU 0 and B, D on CPU 1. Moving one job only flips the imbalance (now CPU 1 has one job and CPU 0 has two). The fix is <strong>continuous migration</strong>: keep switching which job moves.<span class="cite">Bilal slides, Ch 10 p.21</span></p>
+<p>The <strong>trickier case</strong>: A is alone on CPU 0, and B and D share CPU 1. Three jobs, two CPUs. Move B to CPU 0, and now CPU 0 has two jobs while D is alone. The imbalance just flips. The fix is <strong>continuous migration</strong>: keep switching which job moves.<span class="cite">Bilal slides, Ch 10 p.21</span></p>
 <div data-gantt='{"lanes":[{"label":"CPU 0","segs":[["A",0,1],["A",1,2],["A",2,3],["A",3,4],["B",4,5],["A",5,6],["B",6,7],["A",7,8],["B",8,9],["B",9,10],["B",10,11],["B",11,12]]},{"label":"CPU 1","segs":[["B",0,1],["D",1,2],["B",2,3],["D",3,4],["D",4,5],["D",5,6],["D",6,7],["D",7,8],["A",8,9],["D",9,10],["A",10,11],["D",11,12]]}],"end":12}'></div>
 <p class="small">At t=4, B migrates to CPU 0 (now A shares with B; D has CPU 1 alone). At t=8, A migrates to CPU 1. Over a long time, A, B and D each get about the same share. (This is the slides' pattern; it's one of many valid ones.)</p>
 
 <h3>How to decide when to migrate · work stealing</h3>
-<p><strong>Work stealing</strong> is one common way to do the migration:<span class="cite">Bilal slides, Ch 10 p.23</span></p>
+<p>Who decides to move a job, and when? <strong>Work stealing</strong> is one common answer. It is like a cashier with an empty line glancing at the next till and calling some customers over:<span class="cite">Bilal slides, Ch 10 p.23</span></p>
 <ol class="steps">
 <li>A <strong>source</strong> queue that is low on jobs…</li>
 <li>…occasionally <strong>peeks</strong> at another <strong>target</strong> queue to see how full it is.</li>
 <li>If the target is (notably) more full than the source, the source <strong>steals</strong> one or more jobs from the target.</li>
 </ol>
 <div class="box trap"><span class="tag">Trade-off</span>
-Peek too often and you pay <strong>high overhead and trouble scaling</strong>, which is exactly the problem MQMS was built to avoid. Peek too rarely and load stays unbalanced. Real systems tune how often to look.</div>
+Peek too often and you pay <strong>high overhead and trouble scaling</strong>. That is exactly the problem MQMS was built to avoid. Peek too rarely and load stays unbalanced. Real systems tune how often to look.</div>
 
 <div class="box exam"><span class="tag">This is how it's asked: "Draw it with and without load balancing"</span>
-You get N CPU-bound jobs placed unevenly on two queues (RR). <strong>Without balancing</strong>: each CPU round-robins only through its own queue, so the CPU with fewer jobs gives each one more time (or sits idle). <strong>With balancing</strong>: migrate jobs until the queues have as equal counts as possible, then draw each CPU round-robining its new queue. Label the lanes CPU 0 / CPU 1, use one box per time slice, and end with "…". If counts can't be equal, say "continuous migration" and show jobs swapping.</div>
+You get N CPU-bound jobs placed unevenly on two queues (RR).
+<ul style="margin:.3rem 0">
+<li><strong>Without balancing</strong>: each CPU round-robins only through its own queue. The CPU with fewer jobs gives each one more time (or sits idle).</li>
+<li><strong>With balancing</strong>: migrate jobs until the queue counts are as equal as possible. Then draw each CPU round-robining its new queue.</li>
+<li>Label the lanes CPU 0 / CPU 1, use one box per time slice, and end with "…".</li>
+<li>If counts can't be equal, say "continuous migration" and show jobs swapping.</li>
+</ul></div>
+<p class="inshort"><strong>In short:</strong> MQMS = one queue per CPU. It fixes lock contention and cache affinity, but creates <strong>load imbalance</strong>, which is fixed by <strong>migration</strong> (e.g. work stealing).</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">MQMS, two CPUs, round robin. Q0 holds A and B; Q1 holds C, D, E and F. Without load balancing, what fraction of a CPU does each job get? What about after balancing?</p><div class="a">Without: A and B get <strong>1/2</strong> each; C, D, E, F get <strong>1/4</strong> each (A gets twice as much as C).<br>With balancing: migrate one job from Q1 to Q0 → 3 + 3, so every job gets <strong>1/3</strong>.</div></div>
@@ -286,6 +320,7 @@ You get N CPU-bound jobs placed unevenly on two queues (RR). <strong>Without bal
 
 <!-- ======================================================== -->
 <h2>SQMS vs MQMS at a glance</h2>
+<p class="crux"><strong>The problem:</strong> neither design wins on everything. Which one is better at what?</p>
 <div class="table-wrap"><table>
 <thead><tr><th></th><th>SQMS (single queue)</th><th>MQMS (one queue per CPU)</th></tr></thead>
 <tbody>
@@ -296,7 +331,7 @@ You get N CPU-bound jobs placed unevenly on two queues (RR). <strong>Without bal
 </tbody></table></div>
 
 <h3>What Linux did</h3>
-<p>Linux never settled on one answer. Three schedulers have been used:<span class="cite">Bilal slides, Ch 10 p.24</span></p>
+<p>Linux never settled on one answer. It has used three schedulers:<span class="cite">Bilal slides, Ch 10 p.24</span></p>
 <div class="table-wrap"><table>
 <thead><tr><th>Scheduler</th><th>Queues</th><th>Idea</th></tr></thead>
 <tbody>
@@ -305,7 +340,8 @@ You get N CPU-bound jobs placed unevenly on two queues (RR). <strong>Without bal
 <tr><td><strong>BFS</strong></td><td>Single</td><td>Proportional share</td></tr>
 </tbody></table></div>
 <div class="box exam"><span class="tag">Slide difference</span>
-Dr. Bilal's slide calls BFS "proportional-share". Dr. Zafar's slide calls it "deadline-based ordering" (OSTEP adds that it's based on Earliest Eligible Virtual Deadline First). Both are right; write "single queue, proportional share" and mention deadlines if you have room. The key fact to remember: <strong>O(1) and CFS are multi-queue, BFS is single-queue.</strong></div>
+Dr. Bilal's slide calls BFS "proportional-share". Dr. Zafar's slide calls it "deadline-based ordering". (OSTEP adds that it's based on Earliest Eligible Virtual Deadline First.) Both are right. Write "single queue, proportional share", and mention deadlines if you have room. The key fact to remember: <strong>O(1) and CFS are multi-queue, BFS is single-queue.</strong></div>
+<p class="inshort"><strong>In short:</strong> SQMS is simple and balances load naturally. MQMS scales and keeps cache affinity but needs migration. In Linux, O(1) and CFS are multi-queue; BFS is single-queue.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Linux has used three multiprocessor schedulers. Name them and say whether each is single-queue or multi-queue.</p><div class="a"><strong>O(1)</strong>: multi-queue, priority-based (MLFQ-like). <strong>CFS</strong>: multi-queue, deterministic proportional share. <strong>BFS</strong>: <strong>single-queue</strong>, proportional share (deadline-based).</div></div>

@@ -23,10 +23,10 @@ td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
 
 <p class="kicker">Lesson 12 · Memory virtualization</p>
 <h1>Base and bounds: moving a program without it noticing</h1>
-<p class="lede">Every program thinks its memory starts at address 0. Two tiny registers in the CPU quietly add an offset to every address, and stop the program the moment it reaches outside its own box.</p>
+<p class="lede">Every program thinks its memory starts at address 0. In reality the OS puts it somewhere else. Two small registers in the CPU fix up every address on the fly. They also stop the program the moment it reaches outside its own box.</p>
 
 <div class="box key"><span class="tag">The one-sentence version</span>
-On every memory access the hardware computes <strong>physical address = virtual address + base</strong>, after checking that the virtual address is <strong>less than bounds</strong>. If the check fails, it raises an exception and the OS takes over.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.3</a></div>
+On every memory access the hardware does two things. First it checks that the virtual address is <strong>less than bounds</strong>. Then it computes <strong>physical address = virtual address + base</strong>. If the check fails, it raises an exception and the OS takes over.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.3</a></div>
 
 <div class="warmup">
 <div class="rc"><div class="q">Lesson 11: Name the bug.<pre><code>char *a = malloc(10);
@@ -38,15 +38,17 @@ free(a);</code></pre></div><div class="a"><strong>Memory leak</strong>. The seco
 
 <!-- ======================================================== -->
 <h2>The goal: efficient, but controlled</h2>
-<p>Back in Lesson 4, <strong>limited direct execution</strong> (LDE) let a program run straight on the CPU, with the OS stepping in only at key moments such as a system call or a timer interrupt. We want the same deal for memory:<span class="cite">Bilal slides, Ch 15</span></p>
+<p class="crux"><strong>The problem:</strong> how do we let a program use memory at full speed, but never touch memory that isn't its own?</p>
+<p>Remember <strong>limited direct execution</strong> (LDE) from Lesson 4. The program runs straight on the CPU. The OS steps in only at key moments, like a system call or a timer interrupt. We want the same deal for memory. That means two goals:<span class="cite">Bilal slides, Ch 15</span></p>
 <ul>
-<li><strong>Efficiency</strong>: the program uses memory at full speed, so the hardware has to do the work.</li>
-<li><strong>Control</strong>: no program can touch memory that isn't its own, so the OS has to set things up and step in when something goes wrong.</li>
+<li><strong>Efficiency</strong>: memory accesses run at full speed. So the hardware must do the work.</li>
+<li><strong>Control</strong>: no program can touch another's memory. So the OS sets things up, and steps in when something goes wrong.</li>
 </ul>
-<p>The technique is called <strong>hardware-based address translation</strong>. On <em>every</em> instruction fetch, load and store, the hardware changes the <strong>virtual address</strong> the program used into the <strong>physical address</strong> where the data really lives.</p>
+<p>A program's addresses are fake. The address the program uses is a <strong>virtual address</strong> (VA). The address where the byte really sits in RAM is the <strong>physical address</strong> (PA). <strong>Address translation</strong> (or hardware-based address translation) means the hardware turns each VA into a PA. It does this on <em>every</em> instruction fetch, load and store.</p>
 
 <div class="box analogy"><span class="tag">Interposition</span>
-OSTEP calls this <strong>interposition</strong>: something sits in the middle of every request and quietly changes it, without the client noticing. Think of a hotel switchboard. You dial "room 12", and the switchboard adds the floor offset and connects you to extension 3012. You never needed to know the real number.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15 aside</a></div>
+OSTEP calls this <strong>interposition</strong>. Something sits in the middle of every request and quietly changes it. The client never notices. Think of a hotel switchboard. You dial "room 12". The switchboard adds the floor offset and connects you to extension 3012. You never needed to know the real number.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15 aside</a></div>
+<p class="inshort"><strong>In short:</strong> the hardware translates every access (efficiency). The OS sets up the translation and handles faults (control). It's LDE, applied to memory.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">What is "hardware-based address translation", and why is it done by hardware rather than by the OS?</p><div class="a">On <strong>every</strong> instruction fetch, load and store, the hardware turns the program's <strong>virtual address</strong> into the <strong>physical address</strong> where the data really is. It must be hardware for <strong>efficiency</strong>: the OS can't run on every access. The OS keeps <strong>control</strong> by setting it up and handling faults (like LDE for memory).</div></div>
@@ -71,13 +73,15 @@ OSTEP calls this <strong>interposition</strong>: something sits in the middle of
 </div>
 
 <h2>Three simplifying assumptions</h2>
-<p>To keep this first version simple, Bilal's slides (and OSTEP §15.1) assume:</p>
+<p class="crux"><strong>The problem:</strong> real memory is messy. To learn the idea first, we start with an easy, unrealistic world.</p>
+<p>Bilal's slides (and OSTEP §15.1) assume three things:</p>
 <ol class="steps">
-<li>Each address space is placed <strong>contiguously</strong> (in one piece) in physical memory.</li>
+<li>Each address space is placed <strong>contiguously</strong>, meaning in one unbroken piece of physical memory.</li>
 <li>Each address space is <strong>smaller than physical memory</strong>.</li>
 <li>Every address space is <strong>exactly the same size</strong>.</li>
 </ol>
-<p class="small">We relax these later. Segmentation (next lesson) drops the "one contiguous piece" assumption.</p>
+<p class="small">We drop these later. Segmentation (next lesson) drops the first one: "one contiguous piece".</p>
+<p class="inshort"><strong>In short:</strong> contiguous, smaller than RAM, all the same size. Learn the three as a list.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">List the three simplifying assumptions behind the first version of base and bounds.</p><div class="a">Each address space is (1) placed <strong>contiguously</strong> in physical memory, (2) <strong>smaller than physical memory</strong>, and (3) <strong>exactly the same size</strong> as every other.</div></div>
@@ -103,11 +107,20 @@ OSTEP calls this <strong>interposition</strong>: something sits in the middle of
 
 <!-- ======================================================== -->
 <h2>The running example: <code>x = x + 3</code></h2>
-<p>The compiler turns this one line of C into three instructions. Assume the address of <code>x</code> is already in register <code>ebx</code>:<span class="cite">Bilal slides, Ch 15</span></p>
+<p class="crux"><strong>The problem:</strong> the program uses addresses like 128 and 15 KB. The OS wants to put it somewhere else in RAM. How do those addresses keep working?</p>
+<p>Start with one line of C. The compiler turns it into three instructions. Assume the address of <code>x</code> is already in register <code>ebx</code>:<span class="cite">Bilal slides, Ch 15</span></p>
 <pre><code>128: movl 0x0(%ebx), %eax   ; load x into eax
 132: addl $0x03, %eax       ; add 3
 135: movl %eax, 0x0(%ebx)   ; store eax back into x</code></pre>
-<p>Running it makes <strong>five</strong> memory accesses: fetch at 128, <em>load from 15 KB</em> (where <code>x</code> lives on the stack), fetch at 132 (the add touches no memory), fetch at 135, then <em>store to 15 KB</em>. From the program's point of view, its address space runs from 0 to 16 KB.</p>
+<p>Every instruction must first be <em>fetched</em> from memory. Then the load and the store touch data too. So running these three lines makes <strong>five</strong> memory accesses:</p>
+<ol class="steps">
+<li>Fetch the instruction at 128.</li>
+<li>Load <code>x</code> from 15 KB (x lives on the stack).</li>
+<li>Fetch the instruction at 132. (The add works on a register, so no data access.)</li>
+<li>Fetch the instruction at 135.</li>
+<li>Store <code>x</code> back to 15 KB.</li>
+</ol>
+<p>All five use virtual addresses. From the program's point of view, its address space runs from 0 to 16 KB.</p>
 
 <figure>
 <svg viewBox="0 0 600 300" role="img" aria-label="A 16 KB address space relocated into physical memory between 32 KB and 48 KB">
@@ -138,7 +151,14 @@ OSTEP calls this <strong>interposition</strong>: something sits in the middle of
 <figcaption>The OS puts the process at physical 32 KB, not 0. The process still believes it starts at 0. (OSTEP Fig 15.2, as in Bilal's slides.)</figcaption>
 </figure>
 
-<p><strong>The problem:</strong> how do we move the process to 32 KB <em>transparently</em>, so its addresses (128, 15 KB…) still work? An early idea was <strong>static relocation</strong>: a loader rewrites every address in the program before it runs. It gives no protection, though, and the process can't easily be moved later.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.3 aside</a> The fix is to do it in hardware, at run time.</p>
+<p>So the question is: how do we move the process to 32 KB <em>transparently</em>? Transparent means the program needs no changes, and 128 and 15 KB still work.</p>
+<p>An early idea was <strong>static relocation</strong>. A program called the loader rewrites every address in the program before it runs. It has two problems:<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.3 aside</a></p>
+<ul>
+<li><strong>No protection.</strong> The program can still make up any address and reach other memory.</li>
+<li><strong>Hard to move later.</strong> Once rewritten, the program is stuck where it was placed.</li>
+</ul>
+<p>The fix is to translate in hardware, at run time. That's the next section.</p>
+<p class="inshort"><strong>In short:</strong> <code>x = x + 3</code> makes five accesses (three fetches, one load, one store), and every one must be translated. Static relocation can't protect or move the program.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">The three instructions of <code>x = x + 3</code> (a load, an add, a store) live at 128, 132 and 135, and x is at 15 KB. How many memory accesses does running them make, and what are they?</p><div class="a"><strong>Five</strong>: fetch at 128, <strong>load</strong> from 15 KB, fetch at 132 (the add touches no data), fetch at 135, <strong>store</strong> to 15 KB. Every one of them gets translated.</div></div>
@@ -156,14 +176,21 @@ OSTEP calls this <strong>interposition</strong>: something sits in the middle of
 
 <!-- ======================================================== -->
 <h2>Dynamic relocation: base and bounds</h2>
-<p>Each CPU gets two registers inside its <strong>memory management unit (MMU)</strong>:<span class="cite">Bilal slides, Ch 15</span></p>
+<p class="crux"><strong>The problem:</strong> move the program at run time, and stop it reaching outside its box, at full speed.</p>
+<p>The <strong>MMU</strong> (memory management unit) is the part of the CPU that translates addresses. For base and bounds it needs just two registers per CPU:<span class="cite">Bilal slides, Ch 15</span></p>
 <div class="table-wrap"><table>
 <thead><tr><th>Register</th><th>Holds</th><th>Used for</th></tr></thead>
 <tbody>
 <tr><td><strong>Base</strong></td><td>Where the process starts in physical memory</td><td><strong>Relocation</strong>: physical = virtual + base</td></tr>
 <tr><td><strong>Bounds</strong> (or <em>limit</em>)</td><td>The size of the address space</td><td><strong>Protection</strong>: 0 ≤ virtual &lt; bounds</td></tr>
 </tbody></table></div>
-<p>It is called <em>dynamic</em> relocation because it happens at run time, and the OS can change base whenever it likes.</p>
+<p>Base answers "<em>where</em> is the box?". Bounds answers "<em>how big</em> is the box?". This is called <strong>dynamic relocation</strong>, because it happens at run time. The OS can change base whenever it likes.</p>
+<p>Every translation is the same three steps:</p>
+<ol class="steps">
+<li><strong>Convert KB to bytes.</strong> 1 KB = 1024 bytes.</li>
+<li><strong>Bounds check.</strong> Is 0 ≤ VA &lt; bounds? If not, it's a fault. Stop.</li>
+<li><strong>Relocate.</strong> PA = VA + base.</li>
+</ol>
 
 <figure>
 <svg viewBox="0 0 600 200" role="img" aria-label="The MMU first checks the virtual address against bounds, then adds base. A failed check raises an exception.">
@@ -196,15 +223,16 @@ OSTEP calls this <strong>interposition</strong>: something sits in the middle of
 </figure>
 
 <h3>Worked example (from the slides)</h3>
-<p>Base = 32 KB = 32,768, bounds = 16 KB = 16,384.<span class="cite">Bilal slides, Ch 15</span></p>
+<p>Base = 32 KB = 32,768. Bounds = 16 KB = 16,384.<span class="cite">Bilal slides, Ch 15</span></p>
 <ol class="steps">
-<li><strong>Fetch at 128.</strong> 128 &lt; 16,384 ✓, so PA = 128 + 32,768 = <strong>32,896</strong>.</li>
-<li><strong>Load from 15 KB.</strong> 15,360 &lt; 16,384 ✓, so PA = 15 KB + 32 KB = <strong>47 KB</strong> (48,128).</li>
-<li><strong>VA 0 KB</strong> → 32 KB. <strong>VA 16 KB</strong>: 16,384 &lt; 16,384? <strong>No</strong>, so it faults. The slides' "16 + 32 = 48 KB" is exactly the first byte <em>past</em> the process.</li>
+<li><strong>Fetch at VA 128.</strong> Check: 128 &lt; 16,384 ✓. PA = 128 + 32,768 = <strong>32,896</strong>.</li>
+<li><strong>Load from VA 15 KB.</strong> 15 KB = 15,360. Check: 15,360 &lt; 16,384 ✓. PA = 15,360 + 32,768 = 48,128 = <strong>47 KB</strong>.</li>
+<li><strong>VA 0.</strong> Check: 0 &lt; 16,384 ✓. PA = 0 + 32 KB = 32 KB.</li>
+<li><strong>VA 16 KB.</strong> 16 KB = 16,384. Check: 16,384 &lt; 16,384? <strong>No</strong>, so it faults. The slides' "16 + 32 = 48 KB" is exactly the first byte <em>past</em> the process.</li>
 </ol>
 
 <h3>Another process, with faults</h3>
-<p>Base = 20 KB (20,480), bounds = 12 KB (12,288). So the valid virtual addresses are 0 to 12,287.</p>
+<p>Base = 20 KB (20,480). Bounds = 12 KB (12,288). So the legal virtual addresses are 0 to 12,287. Each row does the check, then the add:</p>
 <div class="table-wrap"><table>
 <thead><tr><th class="r">Virtual</th><th>Check: VA &lt; 12,288?</th><th class="r">Physical = VA + 20,480</th></tr></thead>
 <tbody>
@@ -227,10 +255,15 @@ Bilal's slides show both (slide "Two ways of Bounds Register"), and OSTEP §15.3
 <tr><td>Order</td><td>check VA first, then add base</td><td>add base first, then check PA</td></tr>
 <tr><td>Rule</td><td>0 ≤ VA &lt; bounds</td><td>base ≤ VA + base &lt; bounds</td></tr>
 </tbody></table></div>
-The two are <strong>logically equivalent</strong>. Bilal's formula slide uses the <em>size</em> version (0 ≤ virtual address &lt; bounds), so use that by default. But his context-switch slide stores <code>bounds : 48KB</code> in the PCB, which is the end-address version. If a question gives a bounds value that is <em>bigger than base</em> and looks like a physical address, say which convention you're using and convert (size = end − base).</div>
+The two give the <strong>same answers</strong>. Bilal's formula slide uses the <em>size</em> version (0 ≤ virtual address &lt; bounds). Use that by default. But his context-switch slide stores <code>bounds : 48KB</code> in the PCB. That's the end-address version. How to spot it: the bounds value is <em>bigger than base</em> and looks like a physical address. Then say which convention you're using, and convert: size = end − base.</div>
 
 <div class="box trap"><span class="tag">Traps</span>
-<strong>KB means 1024 here</strong>: 32 KB = 32,768, not 32,000. The check is strict: <strong>VA = bounds is already out of bounds</strong>, because the valid range is 0 … bounds − 1. And the bounds check uses the <em>virtual</em> address (in the size convention), not the physical one.</div>
+<ul>
+<li><strong>KB means 1024 here.</strong> 32 KB = 32,768, not 32,000.</li>
+<li><strong>The check is strict.</strong> The legal range is 0 … bounds − 1. So VA = bounds is already out of bounds.</li>
+<li><strong>Check the VA, not the PA</strong> (in the size convention). Check first, add base second.</li>
+</ul></div>
+<p class="inshort"><strong>In short:</strong> check VA &lt; bounds, then PA = VA + base. Convert KB with 1024, and remember VA = bounds faults.</p>
 
 <p class="small">You wrote this MMU yourself in Lab 6: see "From your lab" right after this section's practice.</p>
 
@@ -277,10 +310,15 @@ The two are <strong>logically equivalent</strong>. Bilal's formula slide uses th
 
 <!-- ======================================================== -->
 <h2>From your lab: the MMU in C</h2>
-<p>Lab 6: <code>mmu_simple.c</code> is a software MMU with one base and one bounds per process. <code>mmu_virus.c</code> switches the bounds check off to show what an attacker gets.</p>
+<p>In Lab 6 you wrote two programs. <code>mmu_simple.c</code> is a software MMU: one base and one bounds per process. <code>mmu_virus.c</code> turns the bounds check off, to show what an attacker could then do.</p>
 <figure class="labcode" data-src="Labs/Lab 6/mmu_simple.c" data-lines="10-14" data-hl="12-13" data-caption="The two saved MMU values per process. Like the PCB fields the OS reloads into the registers on a context switch"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%206/mmu_simple.c">Labs/Lab 6/mmu_simple.c</a><span class="lc-span">lines 10–14</span></div><pre><span class="ln" data-n="10">struct process {</span><span class="ln" data-n="11">    int pid;</span><span class="ln hl" data-n="12">    int base;</span><span class="ln hl" data-n="13">    int bounds;</span><span class="ln" data-n="14">};</span></pre><figcaption>The two saved MMU values per process. Like the PCB fields the OS reloads into the registers on a context switch</figcaption></figure>
 <figure class="labcode" data-src="Labs/Lab 6/mmu_simple.c" data-lines="35-47" data-hl="40-42" data-caption="Check first (line 40, bounds = size, strict &lt;), then relocate (line 42, PA = base + VA)"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%206/mmu_simple.c">Labs/Lab 6/mmu_simple.c</a><span class="lc-span">lines 35–47</span></div><pre><span class="ln" data-n="35">int translate(int pid, int virtual_address, int *physical_address){</span><span class="ln" data-n="36">    // returns -1 if virtual address is out of bounds.</span><span class="ln" data-n="37">    // returns 0 on success &amp; stores the physical address in *physical address</span><span class="ln" data-n="38">    for (int i = 0; i &lt; MAX_PROCESSES; i++) {</span><span class="ln" data-n="39">        if (proc_list[i].pid == pid) { // find the process</span><span class="ln hl" data-n="40">            if (virtual_address &lt; 0 || virtual_address &gt;= proc_list[i].bounds)</span><span class="ln hl" data-n="41">                return ERROR_BOUNDS;   // bounds check</span><span class="ln hl" data-n="42">            *physical_address = proc_list[i].base + virtual_address; //physical = base + virtual</span><span class="ln" data-n="43">            return SUCCESS;</span><span class="ln" data-n="44">        }</span><span class="ln" data-n="45">    }</span><span class="ln" data-n="46">    return ERROR_BOUNDS;</span><span class="ln" data-n="47">}</span></pre><figcaption>Check first (line 40, bounds = size, strict &lt;), then relocate (line 42, PA = base + VA)</figcaption></figure>
-<p>This is the "check, then add" figure in the section above, line for line: line 40 is <strong>protection</strong> (0 ≤ VA &lt; bounds, the <em>size</em> convention), line 42 is <strong>relocation</strong>. A real MMU does this in hardware on every access; your C function stands in for it. Its output:</p>
+<p>This is the "check, then add" figure from above, line for line:</p>
+<ul>
+<li><strong>Line 40 is protection.</strong> It checks 0 ≤ VA &lt; bounds (the <em>size</em> convention).</li>
+<li><strong>Line 42 is relocation.</strong> It adds base.</li>
+</ul>
+<p>A real MMU does this in hardware, on every access. Your C function plays the hardware's part. Its output:</p>
 <pre><code>[OK] PID 1: Wrote 65 to VA 0 (PA 1000)
 [OK] PID 1: Wrote 66 to VA 499 (PA 1499)
 [FAULT] PID 1: VA 500 out of bounds
@@ -288,9 +326,14 @@ The two are <strong>logically equivalent</strong>. Bilal's formula slide uses th
 [OK] PID 2: Wrote 77 to VA 128 (PA 3128)
 [FAULT] PID 2: VA 499 out of bounds</code></pre>
 <figure class="labcode" data-src="Labs/Lab 6/mmu_virus.c" data-lines="48-56" data-hl="48-51,55" data-caption="With CHECK_BOUNDS 0 the preprocessor deletes lines 49 and 50, so the translation goes ahead with no bounds check, whatever the offset"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%206/mmu_virus.c">Labs/Lab 6/mmu_virus.c</a><span class="lc-span">lines 48–56</span></div><pre><span class="ln hl" data-n="48">#if CHECK_BOUNDS</span><span class="ln hl" data-n="49">    if (offset &lt; 0 || offset &gt;= p-&gt;segments[seg].bounds)</span><span class="ln hl" data-n="50">        return ERROR_BOUNDS;</span><span class="ln hl" data-n="51">#endif</span><span class="ln" data-n="52"> </span><span class="ln" data-n="53">    *pa = (seg == SEG_STACK)</span><span class="ln" data-n="54">        ? p-&gt;segments[seg].base - offset</span><span class="ln hl" data-n="55">        : p-&gt;segments[seg].base + offset;</span><span class="ln" data-n="56">    return SUCCESS;</span></pre><figcaption>With CHECK_BOUNDS 0 the preprocessor deletes lines 49 and 50, so the translation goes ahead with no bounds check, whatever the offset</figcaption></figure>
-<p>As handed in (<code>CHECK_BOUNDS 0</code>, line 15) it printed <code>ALLOWED -&gt; PA=3900 byte=0x53</code> for offset 2900 (1000 + 2900, outside PID 1's 400-byte code segment) and <code>ALLOWED -&gt; PA=800</code> for offset −200 (below its base). With <code>CHECK_BOUNDS 1</code> I ran it again and both were <code>BLOCKED (bounds error)</code>. <strong>No bounds check means no isolation.</strong></p>
-<div class="labnote warn">Two comments in <code>mmu_virus.c</code> don't match the code. (1) Line 15 says "flip to 0 to see the virus succeed", but it is <em>already</em> 0, so the file as submitted has protection <strong>off</strong>; set it to 1 to see the MMU block both attacks. (2) Line 36 says the secret is in PID 2's stack, but PID 2's stack is base 3000, size 400, and none of PID 2's segments cover PA 3900. (PA 3900 is actually in PID 1's <em>own</em> stack: base 4000, size 500, so PAs 3501–4000 with the file's subtracting rule.) The demo still makes its point: a <em>code</em> offset reached a byte far outside PID 1's code segment. Also, its stack line (54) subtracts the offset; that's Lab 6's own stack convention, not the exam's (see <a href="0013-segmentation.html">Lesson 13</a>).</div>
-<div class="labnote">Exam angle: translate a VA by hand with these exact rules (check VA &lt; bounds, then add base), say which line is protection and which is relocation, and predict OK/FAULT for edge values like VA = bounds.</div>
+<p>As handed in, line 15 says <code>CHECK_BOUNDS 0</code>, so the check is off. It printed:</p>
+<ul>
+<li><code>ALLOWED -&gt; PA=3900 byte=0x53</code> for offset 2900. That's 1000 + 2900, far outside PID 1's 400-byte code segment.</li>
+<li><code>ALLOWED -&gt; PA=800</code> for offset −200. That's below its base.</li>
+</ul>
+<p>With <code>CHECK_BOUNDS 1</code> I ran it again. Both were <code>BLOCKED (bounds error)</code>. <strong>No bounds check means no isolation.</strong></p>
+<div class="labnote warn">Two comments in <code>mmu_virus.c</code> don't match the code.<br>(1) Line 15 says "flip to 0 to see the virus succeed". But it is <em>already</em> 0. So the file as submitted has protection <strong>off</strong>. Set it to 1 to see the MMU block both attacks.<br>(2) Line 36 says the secret is in PID 2's stack. But PID 2's stack is base 3000, size 400, and none of PID 2's segments cover PA 3900. PA 3900 is actually in PID 1's <em>own</em> stack (base 4000, size 500, so PAs 3501–4000 with the file's subtracting rule).<br>The demo still makes its point: a <em>code</em> offset reached a byte far outside PID 1's code segment. Also note line 54: its stack subtracts the offset. That's Lab 6's own stack convention, not the exam's (see <a href="0013-segmentation.html">Lesson 13</a>).</div>
+<div class="labnote">Exam angle: translate a VA by hand (check VA &lt; bounds, then add base). Say which line is protection and which is relocation. Predict OK/FAULT for edge values like VA = bounds.</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">Using <code>mmu_simple.c</code>'s PID 2 (base 3000, bounds 300), predict what <code>test_translation(2, 299, 9)</code> and <code>test_translation(2, 300, 9)</code> print.</p><div class="a"><code>[OK] PID 2: Wrote 9 to VA 299 (PA 3299)</code>: 299 &lt; 300, so PA = 3000 + 299.<br><code>[FAULT] PID 2: VA 300 out of bounds</code>: 300 &gt;= 300 fails line 40's check. VA = bounds is the first byte past the process.</div></div>
 <div class="rc"><p class="q">Rewrite lines 40–42 of <code>translate()</code> for a machine whose bounds register holds the <strong>physical end address</strong>. What would PID 1's bounds value be then?</p><div class="a"><code>int pa = proc_list[i].base + virtual_address;</code><br><code>if (virtual_address &lt; 0 || pa &gt;= proc_list[i].bounds) return ERROR_BOUNDS;</code><br><code>*physical_address = pa;</code><br>Add first, then check the PA. PID 1's bounds would be 1000 + 500 = <strong>1500</strong>. Same results as before.</div></div>
@@ -326,6 +369,8 @@ The two are <strong>logically equivalent</strong>. Bilal's formula slide uses th
 
 <!-- ======================================================== -->
 <h2>What the hardware must provide</h2>
+<p class="crux"><strong>The problem:</strong> what must the CPU have so this works, and so a program can't simply switch it off?</p>
+<p>The key idea: base and bounds only protect anyone if a user program <em>can't change them</em>. So most items below are about keeping the OS in charge.</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Hardware requirement</th><th>Why</th></tr></thead>
 <tbody>
@@ -337,6 +382,7 @@ The two are <strong>logically equivalent</strong>. Bilal's formula slide uses th
 <tr><td><strong>Ability to raise exceptions</strong></td><td>On an out-of-bounds access, or an attempt to change base/bounds in user mode</td></tr>
 </tbody></table></div>
 <p class="small">Source: OSTEP Fig 15.3, also on Bilal's "Hardware requirements" slides.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.4</a></p>
+<p class="inshort"><strong>In short:</strong> kernel mode, the two registers, translate-and-check circuits, privileged instructions to set the registers and the handlers, and the ability to raise exceptions.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Name at least four things the hardware must provide for base-and-bounds.</p><div class="a">(1) <strong>Privileged (kernel) mode</strong>; (2) <strong>base/bounds registers</strong> in the MMU, one pair per CPU; (3) circuitry to <strong>add base and check bounds</strong> on every access; (4) <strong>privileged instructions</strong> to update base/bounds; (5) privileged instructions to <strong>register exception handlers</strong>; (6) the ability to <strong>raise exceptions</strong> (out of bounds, or a user trying to change base/bounds).</div></div>
@@ -354,7 +400,8 @@ The two are <strong>logically equivalent</strong>. Bilal's formula slide uses th
 
 <!-- ======================================================== -->
 <h2>What the OS must do</h2>
-<p>The hardware translates on its own. The OS only steps in at a few <strong>critical junctures</strong>:<span class="cite">Bilal slides, Ch 15</span></p>
+<p class="crux"><strong>The problem:</strong> the hardware translates on its own. So when does the OS have to step in?</p>
+<p>Only at a few key moments. OSTEP calls them <strong>critical junctures</strong>:<span class="cite">Bilal slides, Ch 15</span></p>
 <div class="table-wrap"><table>
 <thead><tr><th>When</th><th>OS job</th></tr></thead>
 <tbody>
@@ -382,7 +429,7 @@ The two are <strong>logically equivalent</strong>. Bilal's formula slide uses th
 <figcaption>With fixed-size slots, the free list is just a list of free slots. A new process takes one; a terminated one gives its slot back.</figcaption>
 </figure>
 
-<p>The PCB simply grows two fields. That's the <code>struct proc</code> you've already seen:</p>
+<p>Why save base and bounds? There is only <em>one</em> pair of registers per CPU. While a process isn't running, its values must live somewhere. That place is its <strong>PCB</strong>. So the PCB just grows two fields. That's the <code>struct proc</code> you've already seen:</p>
 <pre><code>struct proc {
     int   state;
     void *program_counter;
@@ -392,7 +439,13 @@ The two are <strong>logically equivalent</strong>. Bilal's formula slide uses th
     ...
 };</code></pre>
 <div class="box key"><span class="tag">Bonus: moving a process</span>
-While a process is <em>not running</em>, the OS can move it. It copies the address space to a new spot and updates the <strong>saved base in the PCB</strong>. When the process resumes, the new base is loaded, and the process never notices.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.5</a></div>
+While a process is <em>not running</em>, the OS can move it:
+<ol>
+<li>Copy the address space to the new spot.</li>
+<li>Update the <strong>saved base in the PCB</strong>.</li>
+<li>When the process resumes, the new base is loaded. The process never notices.</li>
+</ol><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.5</a></div>
+<p class="inshort"><strong>In short:</strong> the OS acts at boot, process create, process exit, context switch (save/restore base and bounds in the PCB) and exceptions (usually kill the process).</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">The OS switches from process A to process B. Exactly what does it do with the base and bounds registers?</p><div class="a">There's only one pair per CPU, so the OS <strong>saves A's base and bounds into A's PCB</strong> (process structure) and <strong>loads B's values from B's PCB</strong> into the registers before returning into B.</div></div>
@@ -428,6 +481,7 @@ While a process is <em>not running</em>, the OS can move it. It copies the addre
 
 <!-- ======================================================== -->
 <h2>The full timeline: LDE with dynamic relocation</h2>
+<p class="crux"><strong>The problem:</strong> how do all the pieces fit together over time, from boot to a crash?</p>
 <p>Read down the table. Colour shows who is acting: <span style="color:var(--s1)">OS (kernel mode)</span>, <span style="color:var(--s2)">hardware</span>, <span style="color:var(--s3)">program (user mode)</span>.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP Fig 15.5–15.6</a></p>
 <div class="table-wrap"><table class="tl">
 <thead><tr><th>Who</th><th>What happens</th></tr></thead>
@@ -451,7 +505,8 @@ While a process is <em>not running</em>, the OS can move it. It copies the addre
 <tr><td class="hw">Hardware</td><td>Detects the violation, moves to kernel mode, jumps to the trap handler</td></tr>
 <tr><td class="os">OS</td><td>Kill B: <strong>deallocate B's memory</strong> (back on the free list), remove B from the process table</td></tr>
 </tbody></table></div>
-<p>It's still limited direct execution: the OS sets things up, gets out of the way, and steps in only when necessary.</p>
+<p>Notice the middle part, "A runs". The OS does nothing there. The hardware does all the translating.</p>
+<p class="inshort"><strong>In short:</strong> it's still limited direct execution. The OS sets things up, gets out of the way, and steps in only on a timer interrupt or a fault.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Process B executes a load whose virtual address is out of bounds. Trace what the hardware and the OS do.</p><div class="a"><strong>Hardware</strong>: detects the violation, switches to kernel mode, jumps to the OS's illegal-memory-access handler (registered in the trap table at boot).<br><strong>OS</strong>: kills B, <strong>deallocates B's memory</strong> (back onto the free list) and removes B from the process table.</div></div>
@@ -468,7 +523,8 @@ While a process is <em>not running</em>, the OS can move it. It copies the addre
 
 <!-- ======================================================== -->
 <h2>The catch: internal fragmentation</h2>
-<p>Base and bounds reserves the <strong>whole</strong> address space as one block, including the big gap between heap and stack that the program isn't using. That gap still takes real physical memory, in every process. Waste <em>inside</em> an allocated block like this is called <strong>internal fragmentation</strong>.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.6</a></p>
+<p class="crux"><strong>The problem:</strong> the gap between heap and stack is empty, but base and bounds still gives it real memory.</p>
+<p>Base and bounds places the <strong>whole</strong> address space as one block. That includes the big gap between heap and stack, which the program isn't using. The gap still takes real physical memory, in every process. Waste <em>inside</em> an allocated block is called <strong>internal fragmentation</strong>.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.6</a></p>
 
 <figure>
 <svg viewBox="0 0 600 110" role="img" aria-label="A 16 KB slot: code 2 KB, heap 2 KB, 10 KB wasted gap, stack 2 KB">
@@ -484,6 +540,7 @@ While a process is <em>not running</em>, the OS can move it. It copies the addre
 <figcaption>Small programs in big fixed slots waste most of the slot. A 32-bit (4 GB) address space wouldn't even fit.</figcaption>
 </figure>
 <p>Bilal's question: <em>what if code, heap and stack each had their own base and bounds?</em> Then the gap needs no physical memory at all. That idea is <strong>segmentation</strong>, the next lesson.</p>
+<p class="inshort"><strong>In short:</strong> internal fragmentation = waste inside a block. Base and bounds wastes the whole heap–stack gap. Segmentation fixes this.</p>
 
 <div class="box exam"><span class="tag">This is how it's asked</span>
 "Given base and bounds, translate these virtual addresses (or say fault)". "List the hardware support / OS responsibilities for dynamic relocation". "What must happen to base/bounds on a context switch?" "What is internal fragmentation and why does base-and-bounds suffer from it?" Short definitions and arithmetic, so get the check-then-add order automatic.</div>

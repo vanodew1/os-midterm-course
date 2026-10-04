@@ -30,7 +30,7 @@
 
 <p class="kicker">Lesson 4 · CPU virtualization: the mechanism</p>
 <h1>Limited direct execution</h1>
-<p class="lede">Run the program straight on the CPU so it is fast, but put two limits on it so the OS never loses control. That is the whole chapter.</p>
+<p class="lede">Let the program run straight on the CPU, so it is fast. But put two limits on it, so the OS never loses control. That is the whole chapter. OSTEP compares it to <strong>baby-proofing a room</strong>: lock the dangerous cabinets, cover the sockets, then let the baby roam freely.</p>
 
 <div class="box key"><span class="tag">The crux</span>
 How can the OS virtualize the CPU <strong>efficiently</strong> (programs run at full hardware speed) while <strong>retaining control</strong> (no program can run forever or touch what it shouldn't)?<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-mechanisms.pdf">OSTEP §6</a> <span class="cite">Bilal slides, Ch 6, slide 4</span></div>
@@ -46,11 +46,16 @@ printf("hi\n");</code></pre></div>
 <div class="a"><strong>Memory</strong> (address space), <strong>registers</strong> (PC, SP, frame pointer, general-purpose), and <strong>I/O information</strong> (open files).</div></div>
 </div>
 
-<p>The OS shares one CPU between many processes by <strong>time sharing</strong>: run one process for a bit, then another, and so on. Two challenges come with that. <strong>Performance</strong>: switching must not slow the system down. <strong>Control</strong>: the OS must stay in charge. If it isn't, a process could (1) run forever, or (2) access data it has no right to.</p>
+<p>The OS shares one CPU between many processes by <strong>time sharing</strong>: run one process for a bit, then another, and so on. Two challenges come with that:</p>
+<ul>
+<li><strong>Performance:</strong> sharing the CPU must not slow the system down.</li>
+<li><strong>Control:</strong> the OS must stay in charge. Otherwise a process could (1) run forever, or (2) access data it has no right to.</li>
+</ul>
 
 <!-- ======================================================== -->
 <h2>Step 1 · Direct execution: just run it</h2>
-<p>The fastest way to run a program is to let it run natively on the CPU. The OS sets things up, jumps to <code>main()</code>, and steps aside.</p>
+<p class="crux"><strong>The problem:</strong> what is the fastest way to run a program?</p>
+<p>Just run it directly on the CPU. This is called <strong>direct execution</strong>. The OS sets things up, jumps to <code>main()</code>, and steps aside:</p>
 
 <div class="table-wrap"><table>
 <thead><tr><th>OS</th><th>Program</th></tr></thead>
@@ -61,7 +66,7 @@ printf("hi\n");</code></pre></div>
 </tbody></table></div>
 <p class="small">Direct execution with no limits.<span class="cite">Bilal slides, Ch 6, slide 6</span> Between steps 6 and 9, the OS is not running at all.</p>
 
-<p>It is fast, but it causes two problems:</p>
+<p>It is fast. But once the program is running, the OS isn't. So who stops the program from misbehaving? Nobody. That gives two problems:</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Problem</th><th>Example</th><th>Fix</th></tr></thead>
 <tbody>
@@ -69,10 +74,17 @@ printf("hi\n");</code></pre></div>
 <tr><td><strong>2. Switching between processes</strong>: how do we stop it running forever?</td><td>An infinite loop</td><td><strong>Timer interrupt</strong> + <strong>context switch</strong></td></tr>
 </tbody></table></div>
 
-<div class="box analogy"><span class="tag">Analogy</span>
-A rental car. You drive it yourself at full speed (direct execution), but it has a <em>speed limiter</em> you can't remove (user mode) and a <em>tracker that phones home every few minutes</em> (timer interrupt). OSTEP compares it to baby-proofing a room: lock the dangerous cabinets, then let the baby roam freely.</div>
+<div class="box analogy"><span class="tag">Analogy (OSTEP): baby-proofing a room</span>
+Parents don't follow a baby around every second. Instead they <strong>baby-proof</strong> the room first: lock the cabinets with dangerous stuff and cover the electrical sockets. Then they let the baby roam freely.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-mechanisms.pdf">OSTEP §6.5</a>
+<br>The OS "baby-proofs" the CPU the same way:
+<ul>
+<li><strong>Lock the cabinets</strong> = run programs in a restricted <strong>user mode</strong>, so they can't do dangerous things themselves (Problem 1).</li>
+<li><strong>Set an alarm clock</strong> = start a <strong>timer</strong> at boot, so the OS gets the CPU back every few milliseconds (Problem 2).</li>
+<li><strong>Let the baby roam</strong> = the program runs directly on the CPU at full speed.</li>
+</ul></div>
 
-<p>Without limits, OSTEP says, the OS would be "just a library": code the program happens to call, with no real authority over it.</p>
+<p>Without these limits, OSTEP says, the OS would be "just a library": code the program happens to call, with no real authority over it.</p>
+<p class="inshort"><strong>In short:</strong> direct execution is fast, but while the program runs the OS isn't running. That leaves two problems: restricted operations (fixed by modes + system calls) and running forever (fixed by the timer interrupt + context switch).</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Under plain direct execution (no limits), once the OS has called <code>main()</code>, when does the OS run again?</p>
@@ -101,7 +113,8 @@ A rental car. You drive it yourself at full speed (direct execution), but it has
 
 <!-- ======================================================== -->
 <h2>Problem 1 · Restricted operations</h2>
-<p>Processes sometimes need special things: issue I/O to a disk, or get more CPU or memory. We can't let every process do raw I/O, or it could read or overwrite the entire disk. So the hardware helps out with <strong>two modes of execution</strong>:<span class="cite">Bilal slides, Ch 6, slide 9</span></p>
+<p class="crux"><strong>The problem:</strong> a program needs to do I/O (like reading a file), but we can't give it full control of the machine. How do we allow one without the other?</p>
+<p>Why not just let every program do raw I/O? Because then any program could read or overwrite the entire disk, including other people's files. So the hardware helps with <strong>two modes of execution</strong>:<span class="cite">Bilal slides, Ch 6, slide 9</span></p>
 
 <div class="table-wrap"><table>
 <thead><tr><th></th><th>User mode</th><th>Kernel mode</th></tr></thead>
@@ -110,10 +123,11 @@ A rental car. You drive it yourself at full speed (direct execution), but it has
 <tr><td>Can do</td><td>Ordinary instructions only. No I/O, no privileged instructions</td><td>Anything, including all restricted operations</td></tr>
 <tr><td>If it tries something privileged</td><td>The CPU raises an <strong>exception</strong>; the OS will likely kill the program</td><td>Allowed</td></tr>
 </tbody></table></div>
-<p>The CPU keeps track of the current mode with a <strong>mode bit</strong>.</p>
+<p>The <strong>mode bit</strong> is a single bit inside the CPU that says which mode it is in: user or kernel.</p>
 
 <h3>System calls: asking the OS nicely</h3>
-<p>So how does a user program read a file? It makes a <strong>system call</strong>, which lets the kernel offer a privileged service on the program's behalf. Most operating systems have hundreds of them.<span class="cite">Bilal slides, Ch 6, slide 11</span></p>
+<p>So how does a user program read a file, if user mode can't do I/O? It asks the kernel to do it. That request is a <strong>system call</strong>: the kernel does a privileged job on the program's behalf. Most operating systems have hundreds of them.<span class="cite">Bilal slides, Ch 6, slide 11</span></p>
+<p>Making a system call needs two special instructions. A <strong>trap</strong> jumps into the kernel and raises the privilege to kernel mode. A <strong>return-from-trap</strong> goes back to the program and lowers the privilege to user mode.</p>
 
 <figure>
 <svg viewBox="0 0 600 220" role="img" aria-label="A program runs in user mode, executes a trap which raises privilege into kernel mode at a fixed handler, then return-from-trap drops back to user mode">
@@ -138,21 +152,34 @@ A rental car. You drive it yourself at full speed (direct execution), but it has
 <figcaption>The mode bit flips exactly twice per system call: up on the trap, down on the return-from-trap.</figcaption>
 </figure>
 
-<p>The two special instructions, in Dr. Bilal's words:<span class="cite">Bilal slides, Ch 6, slide 12</span></p>
+<p>A system call, step by step (following Dr. Bilal's slide):<span class="cite">Bilal slides, Ch 6, slide 12</span></p>
+<p>First, one new term. The <strong>kernel stack</strong> is a small stack in kernel memory, one per process. The hardware uses it to save the program's registers, so the program can be resumed later.</p>
 <ol class="steps">
-<li>The user program puts (a) a <strong>system-call number</strong> and (b) the <strong>arguments</strong> in agreed places (registers or the stack).</li>
-<li>It executes the <strong>trap</strong> instruction, which <em>jumps into the kernel</em> and <em>raises the privilege level to kernel mode</em>. The hardware also saves the program's registers (PC, flags, a few others) onto that process's <strong>kernel stack</strong> so it can be resumed.</li>
-<li>The OS handles the system call in kernel mode.</li>
-<li>The OS executes <strong>return-from-trap</strong>: the hardware pops the saved registers off the kernel stack, <em>lowers the privilege back to user mode</em>, and control returns to the user program right after the trap.</li>
+<li>The program puts a <strong>system-call number</strong> and the <strong>arguments</strong> in agreed places (registers or the stack). The number says which service it wants, e.g. "open a file".</li>
+<li>The program executes the <strong>trap</strong> instruction. The hardware then:
+<ul>
+<li>saves the program's registers (PC, flags, a few others) onto its <strong>kernel stack</strong>,</li>
+<li>switches to <strong>kernel mode</strong>,</li>
+<li>jumps into the kernel, to a handler the OS chose in advance (the trap table, below).</li>
+</ul></li>
+<li>The OS does the requested work, in kernel mode.</li>
+<li>The OS executes <strong>return-from-trap</strong>. The hardware then:
+<ul>
+<li>restores the saved registers from the kernel stack,</li>
+<li>switches back to <strong>user mode</strong>,</li>
+<li>continues the program right after the trap.</li>
+</ul></li>
 </ol>
-<p>You never write the trap yourself. Calling <code>open()</code> calls a C-library wrapper that is hand-written in assembly to do steps 1–2.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-mechanisms.pdf">OSTEP §6.2</a> To your program, <code>open()</code> just looks like a normal function call.</p>
+<p>You never write the trap yourself. When you call <code>open()</code>, you call a small C-library function (a <strong>wrapper</strong>). It is hand-written in assembly to do steps 1–2 for you.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-mechanisms.pdf">OSTEP §6.2</a> That's why <code>open()</code> looks like a normal function call to your program.</p>
 
 <h3>The trap table: where may a trap jump to?</h3>
-<p>If the program could pick the address the trap jumps to, it could jump into the middle of the kernel, past the permission checks. So it can't. Instead:</p>
+<p>Why does this matter? If the program could pick where the trap jumps, it could jump into the middle of the kernel, past the permission checks. Think of a building with a reception desk: visitors can ask for room 3, but they can't walk in through any door they like.</p>
 <ul>
-<li>At <strong>boot time</strong> (the machine starts in kernel mode), the OS tells the hardware which code to run for each event (system call, timer interrupt, keyboard interrupt, divide-by-zero…). This table is the <strong>trap table</strong>; its entries point to <strong>trap handlers</strong>.</li>
+<li>At <strong>boot time</strong>, the machine starts in kernel mode. The OS then tells the hardware which code to run for each event: system call, timer interrupt, keyboard interrupt, divide-by-zero, and so on.</li>
+<li>That list is the <strong>trap table</strong>. Each entry points to a <strong>trap handler</strong>: the OS code for that event.</li>
 <li>Installing the trap table is itself a <strong>privileged instruction</strong>. Only the kernel can do it.</li>
-<li>The hardware remembers these addresses until the next reboot. A user program can only name a system-call <em>number</em>; the OS decided in advance where each number leads.</li>
+<li>The hardware remembers these addresses until the next reboot.</li>
+<li>A user program can only give a system-call <em>number</em>. The OS decided in advance where each number leads.</li>
 </ul>
 <div class="table-wrap"><table>
 <thead><tr><th class="num">#</th><th>System call</th><th>Handler (chosen by OS at boot)</th></tr></thead>
@@ -163,6 +190,7 @@ A rental car. You drive it yourself at full speed (direct execution), but it has
 <tr><td class="num">3</td><td><code>fork()</code></td><td><code>fork_handler()</code></td></tr>
 </tbody></table></div>
 <p class="small">Simplified trap table.<span class="cite">Zafar slides, Ch 6, slide 10</span> Point to ponder from OSTEP: if you could install your own trap table, you could take over the machine.</p>
+<p class="inshort"><strong>In short:</strong> programs run in user mode and must ask the kernel for I/O with a system call. A trap saves registers to the kernel stack, switches to kernel mode and jumps to a handler from the trap table (set by the OS at boot). Return-from-trap undoes all three.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">A program running in user mode tries to execute a privileged instruction (e.g. raw disk I/O). What happens?</p>
@@ -220,18 +248,25 @@ A rental car. You drive it yourself at full speed (direct execution), but it has
 
 <!-- ======================================================== -->
 <h2>From your lab: watching system calls with strace (Lab 3)</h2>
-<p>In Lab 3, Tasks 1–2, your <code>sys_writer.c</code> used raw system calls (<code>getpid</code>, <code>open</code>, <code>write</code>, <code>read</code>, <code>close</code>) to append a line to <code>log.txt</code>, and <code>strace</code> recorded every system call it made into <code>trace.log</code>.</p>
+<p>In Lab 3, Tasks 1–2, your <code>sys_writer.c</code> used raw system calls (<code>getpid</code>, <code>open</code>, <code>write</code>, <code>read</code>, <code>close</code>) to append a line to <code>log.txt</code>. Then <code>strace</code>, a tool that records every system call a program makes, saved them all into <code>trace.log</code>.</p>
 <figure class="labcode" data-src="Labs/Lab 3/sys_writer.c" data-lines="10-26" data-hl="10,14,25,26" data-caption="Each highlighted call looks like a normal C function, but it is a system call: the program traps into the kernel to do it."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%203/sys_writer.c">Labs/Lab 3/sys_writer.c</a><span class="lc-span">lines 10–26</span></div><pre><span class="ln hl" data-n="10">    pid_t pid = getpid();   //Get process ID</span><span class="ln" data-n="11">    uid_t uid = getuid();   //Get user ID</span><span class="ln" data-n="12"> </span><span class="ln" data-n="13">    // Open (or create) a file for writing</span><span class="ln hl" data-n="14">    int fd = open(&quot;log.txt&quot;, O_CREAT | O_WRONLY | O_APPEND, 0644);</span><span class="ln" data-n="15">    if (fd &lt; 0)</span><span class="ln" data-n="16">    {</span><span class="ln" data-n="17">        write(STDERR_FILENO, &quot;Failed to open file.\n&quot;, 22);</span><span class="ln" data-n="18">        return 1;</span><span class="ln" data-n="19">    }</span><span class="ln" data-n="20"> </span><span class="ln" data-n="21">    // Prepare output</span><span class="ln" data-n="22">    char buffer[128];</span><span class="ln" data-n="23">    int len = snprintf(buffer, sizeof(buffer), &quot;PID: %d \t UID: %d \n&quot;, pid, uid);</span><span class="ln" data-n="24"> </span><span class="ln hl" data-n="25">    write(fd, buffer, len);</span><span class="ln hl" data-n="26">    write(STDOUT_FILENO, &quot;Log written to file.\n&quot;, 22); //Confirmation</span></pre><figcaption>Each highlighted call looks like a normal C function, but it is a system call: the program traps into the kernel to do it.</figcaption></figure>
-<p>Your program can't touch the disk or the terminal itself; it runs in <strong>user mode</strong>. So every one of these calls goes through the C-library wrapper, which puts a system-call number and the arguments in place and executes a <strong>trap</strong>. The kernel does the work and comes back with <strong>return-from-trap</strong>. <code>strace</code> prints one line per system call, with the value the kernel returned after the <code>=</code>.</p>
+<p>Your program runs in <strong>user mode</strong>, so it can't touch the disk or the terminal itself. Each of these calls goes like this:</p>
+<ol class="steps">
+<li>The C-library wrapper puts a system-call number and the arguments in place.</li>
+<li>It executes a <strong>trap</strong> into the kernel.</li>
+<li>The kernel does the work and comes back with <strong>return-from-trap</strong>.</li>
+</ol>
+<p><code>strace</code> prints one line per system call. The value after the <code>=</code> is what the kernel returned.</p>
 <figure class="labcode" data-src="Labs/Lab 3/trace.log" data-lines="31-42" data-hl="31,33,37,41" data-caption="The end of your trace.log: the system calls your own code made, one trap each. Line 1 above these is the execve that starts your program, and lines 2–30 are the loader setting it up."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%203/trace.log">Labs/Lab 3/trace.log</a><span class="lc-span">lines 31–42</span></div><pre><span class="ln hl" data-n="31">getpid()                                = 25848</span><span class="ln" data-n="32">getuid()                                = 1000</span><span class="ln hl" data-n="33">openat(AT_FDCWD, &quot;log.txt&quot;, O_WRONLY|O_CREAT|O_APPEND, 0644) = 3</span><span class="ln" data-n="34">write(3, &quot;PID: 25848 \t UID: 1000 \n&quot;, 24) = 24</span><span class="ln" data-n="35">write(1, &quot;Log written to file.\n\0&quot;, 22) = 22</span><span class="ln" data-n="36">write(1, &quot;Enter a message: &quot;, 17)       = 17</span><span class="ln hl" data-n="37">read(0, &quot;hello khan\n&quot;, 63)             = 11</span><span class="ln" data-n="38">write(3, &quot;User input: hello khan\n&quot;, 23) = 23</span><span class="ln" data-n="39">write(1, &quot;Your input was saved\n&quot;, 21)  = 21</span><span class="ln" data-n="40">close(3)                                = 0</span><span class="ln hl" data-n="41">exit_group(0)                           = ?</span><span class="ln" data-n="42">+++ exited with 0 +++</span></pre><figcaption>The end of your trace.log: the system calls your own code made, one trap each. Line 1 above these is the execve that starts your program, and lines 2–30 are the loader setting it up.</figcaption></figure>
 <p>Read it as the "Restricted operations" section in action:</p>
 <ul>
-<li>Line 33: your C <code>open()</code> shows up as the <code>openat</code> system call (the wrapper picks the real call), and the kernel returns descriptor <strong>3</strong>.</li>
-<li>Lines 34–39: <code>write(3, …)</code> goes to the file, <code>write(1, …)</code> to the screen, <code>read(0, …)</code> from the keyboard. While <code>read</code> waits for you to type, the process is <strong>Blocked</strong> in the kernel and the OS can run something else.</li>
-<li>Line 41: returning from <code>main</code> ends with the <code>exit_group</code> system call, the "trap (via <code>exit()</code>)" at the bottom of the LDE timeline below. It shows <code>= ?</code> because it never returns.</li>
-<li>Line 1 of the file (not shown) is <code>execve("./sys", …)</code>: <code>strace</code>'s child exec'ing your program (<code>strace</code> forks, and the child calls <code>exec</code>), as in Lesson 3.</li>
+<li>Line 33: your C <code>open()</code> shows up as the <code>openat</code> system call. The wrapper picks the real call. The kernel returns file descriptor <strong>3</strong>.</li>
+<li>Lines 34–39: <code>write(3, …)</code> goes to the file. <code>write(1, …)</code> goes to the screen. <code>read(0, …)</code> reads from the keyboard.</li>
+<li>While <code>read</code> waits for you to type, the process is <strong>Blocked</strong> in the kernel. The OS can run something else meanwhile.</li>
+<li>Line 41: returning from <code>main</code> ends with the <code>exit_group</code> system call. That's the "trap (via <code>exit()</code>)" at the bottom of the LDE timeline below. It shows <code>= ?</code> because it never returns.</li>
+<li>Line 1 of the file (not shown) is <code>execve("./sys", …)</code>. <code>strace</code> forks, and its child calls <code>exec</code> to become your program, as in Lesson 3.</li>
 </ul>
-<div class="labnote warn">Small bug on line 26 (and line 17): <code>"Log written to file.\n"</code> is <strong>21</strong> bytes, but you pass length <strong>22</strong>, so the string's hidden <code>'\0'</code> is written too. Your own trace proves it: line 35 shows <code>write(1, "Log written to file.\n\0", 22)</code>. Use <code>strlen(msg)</code>, as you did on lines 30 and 42. (Also, if <code>read()</code> fails it returns −1 and line 35 of the C file would write to <code>input[-1]</code>; check <code>n &lt; 0</code> first.)</div>
+<div class="labnote warn">Small bug on line 26 (and line 17). <code>"Log written to file.\n"</code> is <strong>21</strong> bytes, but you pass length <strong>22</strong>. So the string's hidden end marker <code>'\0'</code> is written too. Your own trace proves it: line 35 shows <code>write(1, "Log written to file.\n\0", 22)</code>. Fix: use <code>strlen(msg)</code>, as you did on lines 30 and 42. (Also: if <code>read()</code> fails it returns −1, and line 35 of the C file would write to <code>input[-1]</code>. Check <code>n &lt; 0</code> first.)</div>
 <div class="labnote">Exam angle: "how many times does this program enter the kernel?" (count the system calls), "which mode is it in during <code>read()</code>?", or "what does the hardware do when <code>write()</code> traps?" (save registers to the kernel stack, switch to kernel mode, jump to the handler).</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">Using trace lines 31–40 (from <code>getpid()</code> to <code>close(3)</code>), how many times did your program trap into the kernel, and how many times did the mode bit change?</p>
@@ -271,7 +306,14 @@ A rental car. You drive it yourself at full speed (direct execution), but it has
 
 <!-- ======================================================== -->
 <h2>The LDE protocol, as a timeline</h2>
-<p>Put it together and you get the <strong>limited direct execution protocol</strong>. It has two phases. At <strong>boot</strong>, the kernel sets up the trap table. At <strong>run</strong> time, the kernel sets up the process and then uses <em>return-from-trap</em> to start it, as if the process had just come back from a system call. Read top to bottom; each row happens after the one above.</p>
+<p class="crux"><strong>The problem:</strong> we have modes, traps and a trap table. In what order do they happen, from switching on the machine to a program exiting?</p>
+<p>The full sequence is the <strong>limited direct execution (LDE) protocol</strong>. It has two phases:</p>
+<ol class="steps">
+<li><strong>At boot:</strong> the kernel sets up the trap table.</li>
+<li><strong>Running a process:</strong> the kernel sets up the process. Then it uses <em>return-from-trap</em> to start it.</li>
+</ol>
+<p>Why return-from-trap to <em>start</em> a program? Because that one instruction already does what's needed: switch to user mode and jump into the program. The OS just pretends the process is coming back from a system call.</p>
+<p>Read the table top to bottom. Each row happens after the one above.</p>
 
 <div class="table-wrap"><table class="lde">
 <thead><tr><th>OS<small>kernel mode</small></th><th>Hardware</th><th>Program<small>user mode</small></th></tr></thead>
@@ -292,12 +334,13 @@ A rental car. You drive it yourself at full speed (direct execution), but it has
 <p class="small">After OSTEP Figure 6.2.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-mechanisms.pdf">OSTEP Fig 6.2</a> Red = privileged instruction. Notice the rhythm: every move between the program and the OS goes <em>through the hardware</em> column.</p>
 
 <div class="box exam"><span class="tag">How this is asked</span>
-"Fill in / explain the LDE protocol" or "what does the hardware do on a trap?" Learn the hardware column as two mirror-image triples:
+"Fill in / explain the LDE protocol" or "what does the hardware do on a trap?" Learn the hardware column as two mirror images, three steps each:
 <br><strong>trap</strong> = save regs → kernel stack · move to kernel mode · jump to trap handler
 <br><strong>return-from-trap</strong> = restore regs ← kernel stack · move to user mode · jump to the program's PC</div>
 
 <div class="box trap"><span class="tag">Common mix-up</span>
-"The program jumps into the OS." No: the program executes a <em>trap</em>, and the <strong>hardware</strong> jumps to an address the <strong>OS</strong> registered at boot. The program only supplies a system-call number.</div>
+"The program jumps into the OS." No. The program executes a <em>trap</em>. Then the <strong>hardware</strong> jumps to an address the <strong>OS</strong> registered at boot. The program only supplies a system-call number.</div>
+<p class="inshort"><strong>In short:</strong> boot = OS installs the trap table. Run = OS sets up the process and starts it with return-from-trap. Every trap and return-from-trap goes through the hardware's three steps.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">In the LDE protocol, how does the OS start a user process for the very first time?</p>
@@ -328,45 +371,50 @@ A rental car. You drive it yourself at full speed (direct execution), but it has
 
 <!-- ======================================================== -->
 <h2>Problem 2 · Getting control back</h2>
-<p>Here is the subtle part. <strong>If a process is running on the CPU, the OS is, by definition, not running.</strong> How can a program that isn't running decide to switch processes? There are two approaches.<span class="cite">Bilal slides, Ch 6, slide 14</span></p>
+<p class="crux"><strong>The problem:</strong> how can the OS get the CPU back from a running process, so it can switch to another one?</p>
+<p>Here is the subtle part. <strong>If a process is running on the CPU, the OS is, by definition, not running.</strong> And something that isn't running can't decide anything. OSTEP calls this the crux: "How can the operating system regain control of the CPU?" There are two approaches.<span class="cite">Bilal slides, Ch 6, slide 14</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-mechanisms.pdf">OSTEP §6.3</a></p>
 
-<h3>Approach A · Cooperative: wait for system calls</h3>
-<p>Older systems (early Macintosh OS, the Xerox Alto) <em>trusted</em> processes to hand the CPU back regularly. The OS gets control whenever a process:</p>
+<h3>Approach A · Cooperative: trust the process</h3>
+<p>In the <strong>cooperative approach</strong>, the OS trusts each process to give the CPU back now and then. Older systems worked this way (early Macintosh OS, the Xerox Alto). The OS gets control back only when a process:</p>
 <ul>
-<li>makes a <strong>system call</strong> (e.g. for I/O), or calls the special <code>yield()</code> system call, which does nothing except give control to the OS; or</li>
-<li>does something <strong>illegal</strong> (divides by zero, touches bad memory), which causes a trap into the OS.</li>
+<li>makes a <strong>system call</strong> (e.g. for I/O),</li>
+<li>or calls <code>yield()</code>, a special system call that does nothing except hand control to the OS,</li>
+<li>or does something <strong>illegal</strong> (divides by zero, touches bad memory). That causes a trap into the OS.</li>
 </ul>
-<p>The problem: what if a buggy or malicious process enters an infinite loop and never makes a system call or an error? Then the OS never runs again. <strong>The only fix is to reboot the machine.</strong></p>
+<p>The catch: what if a buggy or malicious process enters an infinite loop? It never makes a system call and never makes an error. Then the OS never runs again. <strong>The only fix is to reboot the machine.</strong></p>
 
 <h3>Approach B · Non-cooperative: the timer interrupt</h3>
-<p>Don't trust the program at all; use hardware. A <strong>timer</strong> device is programmed to raise an <strong>interrupt</strong> every few milliseconds. When it fires, the running process is halted, whatever it wants, and a pre-configured <strong>interrupt handler</strong> in the OS runs. The OS has control again.<span class="cite">Bilal slides, Ch 6, slides 16–17</span></p>
+<p>In the <strong>non-cooperative approach</strong>, the OS doesn't trust the process at all. It uses hardware instead.</p>
+<p>An <strong>interrupt</strong> is an event raised by a hardware device (not by the program) that makes the CPU stop and run OS code. A <strong>timer interrupt</strong> is a hardware interrupt every few milliseconds, raised by a timer device. It stops the running process, whatever it is doing. Then the OS's <strong>interrupt handler</strong> (code the OS chose in advance) runs. So the OS has control again.<span class="cite">Bilal slides, Ch 6, slides 16–17</span></p>
 <p>Setup happens at boot, just like the trap table:</p>
 <ul>
 <li>The OS tells the hardware <strong>which code to run</strong> when the timer interrupt occurs.</li>
-<li>The OS <strong>starts the timer</strong>. That is a privileged operation too (otherwise a program could simply switch it off).</li>
-<li>When the interrupt fires, the hardware <strong>saves the running process's registers onto its kernel stack</strong>, exactly as for a trap, so the OS can resume it later.</li>
+<li>The OS <strong>starts the timer</strong>. This is privileged too. Otherwise a program could simply switch it off.</li>
+<li>When the interrupt fires, the hardware <strong>saves the running process's registers onto its kernel stack</strong>, exactly as for a trap. That way the OS can resume the process later.</li>
 </ul>
 
 <div class="box analogy"><span class="tag">Analogy</span>
-Cooperative scheduling is a meeting with no chairperson: it only moves on when the speaker chooses to stop. The timer interrupt is a chairperson with a buzzer who cuts you off every 2 minutes, however interesting you think you are.</div>
+Cooperative scheduling is a meeting with no chairperson: it only moves on when the speaker chooses to stop. The timer interrupt is a chairperson with a buzzer who cuts you off every 2 minutes, however interesting you think you are. In baby-proofing terms, it's the alarm clock that makes the parent check on the baby, whatever the baby is doing.</div>
 
 <h3>Worked example: the OS vs. <code>while(1);</code></h3>
 <pre><code>int main() {
     while (1)
         ;   // no system call, no yield(), no error, ever
 }</code></pre>
-<p>Under the cooperative approach this freezes the machine. Here is how the timer saves the day, step by step:</p>
+<p>Under the cooperative approach, this freezes the machine. Here is how the timer saves the day, step by step:</p>
 <ol class="steps">
-<li><strong>At boot</strong> (kernel mode), the OS installs the trap table, including the address of the <em>timer interrupt handler</em>, and starts the hardware timer, telling it to interrupt every <em>X</em> ms. Both are privileged instructions.</li>
+<li><strong>At boot</strong> (kernel mode), the OS installs the trap table. It includes the address of the <em>timer interrupt handler</em>.</li>
+<li>Still at boot, the OS starts the hardware timer: "interrupt me every <em>X</em> ms". This and step 1 are privileged instructions.</li>
 <li>The OS starts the looping process with return-from-trap. It now runs in <strong>user mode</strong>, spinning forever.</li>
 <li>After <em>X</em> ms the <strong>timer interrupt</strong> fires. The process didn't ask for it and can't block it.</li>
-<li>The <strong>hardware</strong> saves the process's registers (PC etc.) onto its <strong>kernel stack</strong>, switches to <strong>kernel mode</strong>, and jumps to the timer handler from the trap table.</li>
-<li>The OS is running again. The <strong>scheduler</strong> decides: keep running this process, or switch to another one?</li>
-<li>If it switches, the OS performs a <strong>context switch</strong> (next section) and does a return-from-trap <em>into a different process</em>. The looping process is <em>preempted</em>; it will get another turn later, or the OS can kill it.</li>
+<li>The <strong>hardware</strong> saves the process's registers (PC etc.) onto its <strong>kernel stack</strong>. It switches to <strong>kernel mode</strong> and jumps to the timer handler from the trap table.</li>
+<li>The OS is running again. The <strong>scheduler</strong> (the part of the OS that picks who runs next) decides: keep running this process, or switch to another one?</li>
+<li>If it switches, the OS does a <strong>context switch</strong> (next section). Then it does a return-from-trap <em>into a different process</em>. The looping process is <strong>preempted</strong>: taken off the CPU without its consent. It will get another turn later, or the OS can kill it.</li>
 </ol>
 
 <div class="box exam"><span class="tag">This is how it's asked</span>
 "A process runs <code>while(1)</code> and never makes a system call. Explain step by step how the OS gets the CPU back." Hit these four keywords in order: <strong>timer set at boot</strong> → <strong>timer interrupt</strong> fires (user → kernel mode, jump to handler) → <strong>state saved</strong> (registers / PC onto the kernel stack) → <strong>scheduler</strong> may <strong>context switch</strong> to another process. Also mention why the cooperative approach fails here (no system call means no trap; you'd have to reboot).</div>
+<p class="inshort"><strong>In short:</strong> cooperative = the OS waits for a system call, <code>yield()</code> or an error, so an infinite loop means reboot. Non-cooperative = a timer interrupt, started at boot (privileged), forces control back to the OS every few ms.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Under the <em>cooperative</em> approach, in which ways does the OS get the CPU back from a running process?</p>
@@ -395,13 +443,15 @@ Cooperative scheduling is a meeting with no chairperson: it only moves on when t
 
 <!-- ======================================================== -->
 <h2>The context switch</h2>
-<p>Once the OS has control (via a system call <em>or</em> a timer interrupt), the scheduler makes a decision. If it decides to switch, the OS runs a <strong>context switch</strong>: a small piece of low-level code that saves the state (<em>context</em>) of the old process and restores the new one's.<span class="cite">Bilal slides, Ch 6, slide 18</span></p>
-<ul>
-<li>It saves the current process's registers: general-purpose registers, PC, and the <strong>kernel stack pointer</strong>.</li>
-<li>It restores the new process's saved register values.</li>
-<li>Crucially, it <strong>switches the kernel stack pointer to the new process's kernel stack</strong>.</li>
-</ul>
-<p>That last step is the clever trick. When the OS later executes return-from-trap, the hardware pops registers off <em>whatever kernel stack is current</em>. Since that is now B's stack, the CPU "returns" into B, not A. We entered the kernel as A and leave it as B.</p>
+<p class="crux"><strong>The problem:</strong> the OS has the CPU back, and the scheduler wants to run B instead of A. How does it stop A and resume B exactly where B left off?</p>
+<p>Think of a bookmark. Before you put down book A, you mark your page. To pick up book B, you open it at B's bookmark.</p>
+<p>A <strong>context switch</strong> does the same with registers. It is a small piece of low-level OS code. It saves the state (the <em>context</em>) of the old process and restores the new one's.<span class="cite">Bilal slides, Ch 6, slide 18</span> It runs only if the scheduler decides to switch. Three steps:</p>
+<ol class="steps">
+<li>Save the current process's registers: general-purpose registers, PC, and the <strong>kernel stack pointer</strong>.</li>
+<li>Restore the new process's saved register values.</li>
+<li>Crucially, <strong>switch the kernel stack pointer to the new process's kernel stack</strong>.</li>
+</ol>
+<p>Step 3 is the clever trick. Remember: return-from-trap restores registers from <em>whatever kernel stack is current</em>. After step 3, that is B's stack. So when the OS executes return-from-trap, the CPU "returns" into B, not A. We entered the kernel as A and leave it as B.</p>
 
 <figure>
 <svg viewBox="0 0 600 300" role="img" aria-label="Context switch from A to B: hardware saves A's user registers on A's kernel stack, OS saves A's kernel registers into A's process structure, OS restores B's kernel registers from B's process structure, hardware restores B's user registers from B's kernel stack">
@@ -442,6 +492,7 @@ Cooperative scheduling is a meeting with no chairperson: it only moves on when t
 </figure>
 
 <h3>Two different kinds of register save</h3>
+<p>Why are there two saves? A trap or interrupt <em>always</em> needs to save the program's registers, even if no switch follows. So the hardware does that one automatically. The second save only happens when the OS decides to switch.</p>
 <div class="table-wrap"><table>
 <thead><tr><th></th><th>① Implicit save (trap / interrupt)</th><th>② Explicit save (context switch)</th></tr></thead>
 <tbody>
@@ -450,7 +501,7 @@ Cooperative scheduling is a meeting with no chairperson: it only moves on when t
 <tr><td>Who</td><td>The <strong>hardware</strong>, automatically</td><td>The <strong>OS</strong>, in the <code>switch()</code> routine</td></tr>
 <tr><td>Where to</td><td>That process's <strong>kernel stack</strong></td><td>That process's <strong>process structure</strong> (<code>proc_t</code>, the PCB)</td></tr>
 </tbody></table></div>
-<p class="small"><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-mechanisms.pdf">OSTEP §6.3</a> The effect of ②: the system goes from "as if it just trapped into the kernel from A" to "as if it just trapped into the kernel from B".</p>
+<p class="small"><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-mechanisms.pdf">OSTEP §6.3</a> What ② achieves: before it, the system looks "as if it just trapped into the kernel from A". After it, the system looks "as if it just trapped into the kernel from B".</p>
 
 <h3>The full timeline with a timer interrupt</h3>
 <div class="table-wrap"><table class="lde">
@@ -471,7 +522,7 @@ Cooperative scheduling is a meeting with no chairperson: it only moves on when t
 <p class="small">After OSTEP Figure 6.3 and Bilal slides Ch 6, slide 19.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-mechanisms.pdf">OSTEP Fig 6.3</a></p>
 
 <h3>What <code>switch()</code> looks like (xv6)</h3>
-<p>The real code is about 20 lines of x86 assembly.<span class="cite">Bilal slides, Ch 6, slide 20</span> You don't need to memorise it, just recognise its two halves:</p>
+<p>The real code is about 20 lines of x86 assembly.<span class="cite">Bilal slides, Ch 6, slide 20</span> You don't need to memorise it. Just recognise its two halves: save the old registers, then load the new ones.</p>
 <pre><code># void swtch(struct context **old, struct context *new);
 swtch:
     # Save old registers
@@ -485,6 +536,7 @@ swtch:
     movl 4(%eax), %esp    # stack is switched here  &lt;-- the key line
     pushl 0(%eax)         # return addr put in place
     ret                   # finally return into new ctxt</code></pre>
+<p class="inshort"><strong>In short:</strong> two saves. On every trap/interrupt, the hardware saves user registers to the kernel stack. Only on a switch, the OS's <code>switch()</code> saves kernel registers to <code>proc_t</code>, restores the new process's, and switches to its kernel stack, so return-from-trap lands in the new process.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Compare the two register saves in a context switch: who does each, which registers, and where do they go?</p>
@@ -522,11 +574,13 @@ swtch:
 
 <!-- ======================================================== -->
 <h2>Interrupts during interrupts</h2>
-<p>What if a timer interrupt arrives while the OS is already handling a system call or another interrupt?<span class="cite">Bilal slides, Ch 6, slide 21</span></p>
+<p class="crux"><strong>The problem:</strong> what if a timer interrupt arrives while the OS is already handling a system call or another interrupt?<span class="cite">Bilal slides, Ch 6, slide 21</span></p>
 <ul>
-<li>Simple approach: the OS <strong>disables interrupts</strong> while handling one. Be careful: disable them for too long and interrupts get lost.</li>
-<li>The OS also uses <strong>locks</strong> to protect its internal data structures when several things happen in the kernel at once, especially on multi-core CPUs. (That's the concurrency part of the course.)</li>
+<li>Simple approach: the OS <strong>disables interrupts</strong> while it handles one. Then no second interrupt is delivered in the middle.</li>
+<li>The risk: disable them for too long and interrupts get <strong>lost</strong>.</li>
+<li>The OS also uses <strong>locks</strong>. A lock lets only one activity at a time touch a piece of kernel data. This matters when several things happen in the kernel at once, especially on multi-core CPUs. (That's the concurrency part of the course.)</li>
 </ul>
+<p class="inshort"><strong>In short:</strong> disable interrupts while handling one (but not for too long, or interrupts get lost), and use locks to protect kernel data, especially on multi-core CPUs.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">What can the OS do when a timer interrupt arrives while it is already handling another interrupt? Name the two techniques and one risk.</p>

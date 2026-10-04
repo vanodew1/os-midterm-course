@@ -21,10 +21,16 @@
 
 <p class="kicker">Lesson 6 · CPU scheduling</p>
 <h1>MLFQ: a scheduler that learns</h1>
-<p class="lede">SJF and STCF were great, but they needed to know every job's length in advance. MLFQ never asks. It watches how each job behaves and adjusts its priority, so short and interactive jobs float to the top and long CPU hogs sink to the bottom.</p>
+<p class="lede">SJF and STCF were great, but they needed to know every job's length in advance. MLFQ never asks. It watches how each job behaves and changes its priority. Short and interactive jobs float to the top. Long CPU hogs sink to the bottom.</p>
 
-<div class="box key"><span class="tag">The one-sentence version</span>
-The Multi-Level Feedback Queue keeps several queues of different priority, always runs the highest non-empty queue, and moves jobs between queues based on how much CPU they have used. It is "a scheduler that learns from the past to predict the future".<span class="cite">Bilal slides, Ch 8 p.4</span></div>
+<div class="box key"><span class="tag">The short version</span>
+The <strong>Multi-Level Feedback Queue (MLFQ)</strong> works in three parts:
+<ol style="margin:.4rem 0 0">
+<li>It keeps several queues, each with a different priority.</li>
+<li>It always runs a job from the highest queue that isn't empty.</li>
+<li>It moves jobs between queues based on how much CPU they have used.</li>
+</ol>
+It is "a scheduler that learns from the past to predict the future".<span class="cite">Bilal slides, Ch 8 p.4</span></div>
 
 <div class="warmup">
 <div class="rc"><p class="q">STCF. X arrives at 0 (burst 5), Y arrives at 1 (burst 2). Give the timeline and the average turnaround. (Lesson 5)</p><div class="a">At t = 1, Y (2) &lt; X's 4 left → preempt.<br>X 0–1 | Y 1–3 | X 3–7.<br>Turnaround: X 7 − 0 = 7, Y 3 − 1 = 2 → 9/2 = <strong>4.5</strong>. (Both have response 0.)</div></div>
@@ -34,17 +40,19 @@ The Multi-Level Feedback Queue keeps several queues of different priority, alway
 
 <!-- ======================================================== -->
 <h2>The two goals, and why they clash</h2>
-<p>Dr. Bilal states the objective in two lines:<span class="cite">Bilal slides, Ch 8 p.4–5</span></p>
+<p class="crux"><strong>The problem:</strong> how do we get good turnaround <em>and</em> good response time, when we don't know how long any job is?</p>
+<p>Lesson 5 left us with two kinds of policy, and each is good at only one thing. Dr. Bilal states the goal in two lines:<span class="cite">Bilal slides, Ch 8 p.4–5</span></p>
 <div class="table-wrap"><table>
 <thead><tr><th>Goal</th><th>Ideal policy</th><th>The catch</th></tr></thead>
 <tbody>
 <tr><td><strong>1. Optimize turnaround time</strong></td><td>Run shorter jobs first (like SJF)</td><td>The OS usually <em>does not know</em> job lengths in advance, so SJF can't be applied directly</td></tr>
 <tr><td><strong>2. Minimize response time</strong> for interactive jobs</td><td>Round Robin</td><td>RR improves response time but <em>hurts</em> turnaround time</td></tr>
 </tbody></table></div>
-<p>Key question: how do you balance these two conflicting goals <strong>without knowing job lengths upfront</strong>? Answer: learn them. A job's past behaviour is a decent guess about its future.</p>
+<p>So how do you balance these two goals <strong>without knowing job lengths upfront</strong>? Answer: learn them as you go. A job's past behaviour is a decent guess about its future. If it used lots of CPU so far, it will probably keep doing so.</p>
 
 <div class="box analogy"><span class="tag">Analogy (from the slides)</span>
-A busy café. Some customers want a quick coffee, others a full meal, and you can't ask how long each will take. So you serve everyone a little at first. Whoever keeps ordering more gets moved to the "long table" and served after the quick customers.</div>
+A busy café. Some customers want a quick coffee. Others want a full meal. You can't ask how long each will take. So you serve everyone a little at first. Whoever keeps ordering more gets moved to the "long table" and served after the quick customers.</div>
+<p class="inshort"><strong>In short:</strong> MLFQ wants SJF-like turnaround and RR-like response, without knowing job lengths. It learns each job's nature from its past behaviour.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">What two goals does MLFQ try to meet at the same time, and why can't it just use SJF for the first one?</p><div class="a">(1) <strong>Optimise turnaround</strong> (run short jobs first, like SJF). (2) <strong>Minimise response time</strong> for interactive jobs (like RR). It can't use SJF because the OS <strong>doesn't know job lengths in advance</strong>, so MLFQ learns them from past behaviour.</div></div>
@@ -70,7 +78,13 @@ A busy café. Some customers want a quick coffee, others a full meal, and you ca
 
 <!-- ======================================================== -->
 <h2>The structure: a ladder of queues</h2>
-<p>MLFQ has several distinct queues, and each queue has a different priority level. A ready job sits on exactly <strong>one</strong> queue at a time. Dr. Bilal numbers them so the <strong>highest number is the highest priority</strong> (with 3 queues: Q2 top, Q0 bottom).<span class="cite">Bilal slides, Ch 8 p.9–10</span></p>
+<p class="crux"><strong>The problem:</strong> we need a way to rank jobs, and to move them as we learn about them.</p>
+<p>Picture a ladder. Each rung is a queue. Higher rungs have higher <strong>priority</strong>: their jobs run first.</p>
+<ul>
+<li>A ready job sits on exactly <strong>one</strong> queue at a time.</li>
+<li>Jobs move between rungs as MLFQ learns about them.</li>
+<li>Dr. Bilal numbers the queues so the <strong>highest number is the highest priority</strong>. With 3 queues: Q2 is the top, Q0 the bottom.<span class="cite">Bilal slides, Ch 8 p.9–10</span></li>
+</ul>
 
 <figure>
 <svg viewBox="0 0 600 250" role="img" aria-label="Three queues stacked: Q2 at top holds A and B, Q1 holds C, Q0 at bottom holds D. Arrows show demotion down and the periodic boost back up.">
@@ -97,6 +111,7 @@ A busy café. Some customers want a quick coffee, others a full meal, and you ca
 </svg>
 <figcaption>A and B (Q2) run first, in round robin. C runs only when Q2 is empty, and D only when Q2 and Q1 are both empty. Jobs drift down as they use CPU; the boost (Rule 5) lifts everyone back up.</figcaption>
 </figure>
+<p class="inshort"><strong>In short:</strong> a ladder of queues. Each ready job is on one queue. The highest non-empty queue runs. (Bilal: highest number = top. Zafar: Queue 1 = top.)</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">In MLFQ, how many queues can a ready job be on at once, and which queue's jobs get the CPU?</p><div class="a">A ready job is on <strong>exactly one</strong> queue. The scheduler always runs a job from the <strong>highest-priority non-empty queue</strong>.</div></div>
@@ -123,7 +138,8 @@ A busy café. Some customers want a quick coffee, others a full meal, and you ca
 
 <!-- ======================================================== -->
 <h2>The five rules (learn these word for word)</h2>
-<p>Here is the final rule set exactly as on Dr. Bilal's recap slide.<span class="cite">Bilal slides, Ch 8 p.24</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-mlfq.pdf">OSTEP §8.6</a></p>
+<p class="crux"><strong>The problem:</strong> the ladder needs rules: who runs, where new jobs start, and how jobs move.</p>
+<p>Here is the final rule set, exactly as on Dr. Bilal's recap slide. Read it once now. The sections after this explain <em>why</em> each rule exists.<span class="cite">Bilal slides, Ch 8 p.24</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-mlfq.pdf">OSTEP §8.6</a></p>
 <ul class="rules">
 <li><b>Rule 1</b> If Priority(A) &gt; Priority(B), A runs (B doesn't).</li>
 <li><b>Rule 2</b> If Priority(A) = Priority(B), A &amp; B run in RR.</li>
@@ -134,7 +150,8 @@ A busy café. Some customers want a quick coffee, others a full meal, and you ca
 <div class="box exam"><span class="tag">This is how it's asked</span>
 "What are the 5 rules of MLFQ?" is a 5-mark question in Dr. Bilal's quizzes, and he expects these sentences. A memory hook: <strong>1–2 pick</strong> (who runs), <strong>3 start</strong> (where new jobs go), <strong>4 sink</strong> (how jobs move down), <strong>5 boost</strong> (how they get back up).</div>
 
-<p>The rules didn't arrive all at once. The slides build them in two attempts, and each fix exists because of a specific problem. Knowing that story is what lets you answer the "why" questions.</p>
+<p>The rules didn't arrive all at once. The slides build them in two attempts. Each fix exists because of a specific problem. Knowing that story is what lets you answer the "why" questions.</p>
+<p class="inshort"><strong>In short:</strong> memorise the five rules word for word. Hook: 1–2 pick, 3 start, 4 sink, 5 boost.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Write down the 5 rules of MLFQ.</p><div class="a"><strong>Rule 1:</strong> If Priority(A) &gt; Priority(B), A runs (B doesn't).<br><strong>Rule 2:</strong> If Priority(A) = Priority(B), A &amp; B run in RR.<br><strong>Rule 3:</strong> When a job enters the system, it is placed at the highest priority.<br><strong>Rule 4:</strong> Once a job uses up its time allotment at a given level (regardless of how many times it has given up the CPU), its priority is reduced (i.e., it moves down the queue).<br><strong>Rule 5:</strong> After some time period S, move all the jobs in the system to the topmost queue.</div></div>
@@ -187,13 +204,20 @@ A busy café. Some customers want a quick coffee, others a full meal, and you ca
 
 <!-- ======================================================== -->
 <h2>Attempt 1: Rules 3, 4a and 4b</h2>
-<p>The first version of "how priority changes" was:<span class="cite">Bilal slides, Ch 8 p.11</span></p>
+<p class="crux"><strong>The problem:</strong> how should a job's priority change over time?</p>
+<p>The first attempt was this:<span class="cite">Bilal slides, Ch 8 p.11</span></p>
 <ul class="rules">
 <li><b>Rule 3</b> When a job enters the system, it is placed at the highest priority.</li>
 <li><b>Rule 4a</b> If a job uses up an entire time slice while running, its priority is reduced (i.e., it moves down the queue).</li>
 <li><b>Rule 4b</b> If a job gives up the CPU before the time slice is up, it stays at the same priority level.</li>
 </ul>
-<p>The logic: every new job gets the benefit of the doubt and starts at the top, as if it might be short. If it really <em>is</em> short, it finishes quickly up there, just like SJF. If it keeps burning whole slices, it is probably long and CPU-bound, so it sinks. <strong>In this manner, MLFQ approximates SJF</strong>, without ever being told a job length.</p>
+<p>The logic, step by step:</p>
+<ol>
+<li>Every new job gets the benefit of the doubt. It starts at the top, as if it might be short.</li>
+<li>If it really <em>is</em> short, it finishes quickly up there, just like SJF.</li>
+<li>If it keeps using whole slices, it is probably long and <strong>CPU-bound</strong> (it mostly wants the CPU, not I/O). So it sinks.</li>
+</ol>
+<p><strong>In this manner, MLFQ approximates SJF</strong>, without ever being told a job length.</p>
 
 <h3>CPU-bound vs interactive jobs</h3>
 <div class="table-wrap"><table>
@@ -205,15 +229,17 @@ A busy café. Some customers want a quick coffee, others a full meal, and you ca
 </tbody></table></div>
 
 <h3>Example: along came a short job</h3>
-<p>Three levels with slices <strong>Q2 = 2, Q1 = 4, Q0 = run to completion</strong>. Job A is long (14 units) and starts at 0. Short job B (3 units) arrives at t = 5.</p>
+<p>Three levels with slices <strong>Q2 = 2, Q1 = 4, Q0 = run to completion</strong>. Job A is long (14 units) and starts at 0. Short job B (3 units) arrives at t = 5. Watch how B gets ahead without the scheduler knowing it's short.</p>
 <div data-gantt='{"lanes":[{"label":"Q2","segs":[["A",0,2],["B",5,7]]},{"label":"Q1","segs":[["A",2,5],["A",7,8],["B",8,9]]},{"label":"Q0","segs":[["A",9,17]]}],"arrivals":[["A",0],["B",5]],"end":17}'></div>
 <ol class="steps">
 <li>A starts in Q2 (Rule 3), uses its full slice of 2, and drops to Q1 (Rule 4).</li>
-<li>B arrives at t = 5 and enters Q2. Q2 is higher than Q1, so B takes over immediately (Rule 1). A has already used 3 of its 4 units in Q1, and it keeps that count.</li>
-<li>B uses its 2 units in Q2 and drops to Q1, behind A. A uses its last unit of Q1 allotment (7–8) and drops to Q0.</li>
+<li>B arrives at t = 5 and enters Q2. Q2 is higher than Q1, so B takes over immediately (Rule 1). A has already used 3 of its 4 units in Q1. It keeps that count: being kicked off by a higher job is not "giving up the CPU", so its 3 used units still count. (The rewritten Rule 4 later makes this counting official.)</li>
+<li>B uses its 2 units in Q2 and drops to Q1, behind A.</li>
+<li>A uses its last unit of Q1 allotment (7–8) and drops to Q0.</li>
 <li>B finishes in Q1 at t = 9 (turnaround 4). A then runs alone in Q0.</li>
 </ol>
 <p>Nobody told the scheduler B was short. It behaved like SJF anyway.</p>
+<p class="inshort"><strong>In short:</strong> start at the top (Rule 3); use a whole slice → move down (4a); give up the CPU early → stay (4b). Short jobs finish before sinking, so MLFQ approximates SJF.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">State Rules 4a and 4b from the first attempt at MLFQ.</p><div class="a"><strong>4a:</strong> If a job uses up an entire time slice while running, its priority is reduced. <strong>4b:</strong> If a job gives up the CPU before the time slice is up, it stays at the same priority level.</div></div>
@@ -232,6 +258,7 @@ A busy café. Some customers want a quick coffee, others a full meal, and you ca
 
 <!-- ======================================================== -->
 <h2>Three problems with Attempt 1</h2>
+<p class="crux"><strong>The problem:</strong> Attempt 1 looks good, but it can be broken in three ways.</p>
 <p>Dr. Bilal lists three issues with the basic MLFQ:<span class="cite">Bilal slides, Ch 8 p.16</span></p>
 <div class="table-wrap"><table>
 <thead><tr><th>Problem</th><th>What goes wrong</th><th>Fix</th></tr></thead>
@@ -242,12 +269,17 @@ A busy café. Some customers want a quick coffee, others a full meal, and you ca
 </tbody></table></div>
 
 <h3>Fix 1: the priority boost (Rule 5)</h3>
-<p>Every <strong>S</strong> time units, move every job to the topmost queue. One rule, two problems solved:<span class="cite">Bilal slides, Ch 8 p.18–19</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-mlfq.pdf">OSTEP §8.3</a></p>
+<p>The idea is simple: every so often, give everyone a fresh start. Every <strong>S</strong> time units, move every job to the topmost queue. OSTEP: "throw them all in the topmost queue". One rule, two problems solved:<span class="cite">Bilal slides, Ch 8 p.18–19</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-mlfq.pdf">OSTEP §8.3</a></p>
 <ul>
-<li><strong>No starvation</strong>: a job stuck in Q0 is guaranteed to reach the top within S and will share the CPU with the interactive jobs there in RR.</li>
-<li><strong>Changed behaviour is noticed</strong>: a job that has turned interactive gets a fresh start at the top and can stay there by giving up the CPU early.</li>
+<li><strong>No starvation.</strong> A job stuck in Q0 is guaranteed to reach the top within S. There it shares the CPU with the interactive jobs in RR.</li>
+<li><strong>Changed behaviour is noticed.</strong> A job that has turned interactive gets a fresh start at the top. It can stay there by giving up the CPU early.</li>
 </ul>
-<p>Choosing S is tricky: too large and long jobs still starve for a while; too small and interactive jobs don't get their proper share. OSTEP calls values like this "voodoo constants".</p>
+<p>Choosing S is tricky:</p>
+<ul>
+<li>Too large → long jobs still starve for a while.</li>
+<li>Too small → interactive jobs don't get their proper share.</li>
+</ul>
+<p>OSTEP calls values like this "voodoo constants": they seem to need black magic to set right.</p>
 
 <div class="box trap"><span class="tag">The classic diagram mistake</span>
 A boost puts the job <strong>back at the top</strong>, but it does not give it a permanent pass. A CPU-bound job that is boosted to Q2 must <strong>run one Q2 slice, drop to Q1, run one Q1 slice, then drop to Q0 again</strong>. A diagram that shows the job staying in Q2 after the boost is wrong.</div>
@@ -258,13 +290,19 @@ A boost puts the job <strong>back at the top</strong>, but it does not give it a
 <p class="small"><strong>Right</strong>: after the boost, A walks down the ladder again: 2 units in Q2, 4 in Q1, then Q0.</p>
 <div data-gantt='{"lanes":[{"label":"Q2","segs":[["A",0,2],["A",20,22]]},{"label":"Q1","segs":[["A",2,6],["A",22,26]]},{"label":"Q0","segs":[["A",6,20],["A",26,40]]}],"end":40}'></div>
 <div class="box exam"><span class="tag">This is how it's asked</span>
-"What is wrong with this diagram, which shows how MLFQ runs?" To answer: (1) read off S from where all jobs jump back to the top; (2) check that after the jump each job runs <em>one slice per level</em> as it goes back down; (3) also check that no lower queue runs while a higher queue has a ready job (Rule 1). State the rule that is broken and what the correct picture would show.</div>
+"What is wrong with this diagram, which shows how MLFQ runs?" To answer:
+<ol style="margin:.4rem 0 0">
+<li>Read off S: where do all jobs jump back to the top?</li>
+<li>After the jump, does each job run <em>one slice per level</em> as it goes back down?</li>
+<li>Does any lower queue run while a higher queue has a ready job? That breaks Rule 1.</li>
+</ol>
+State the rule that is broken and what the correct picture would show.</div>
 
 <h3>Fix 2: better accounting (Rule 4 replaces 4a and 4b)</h3>
-<p>The gaming trick works because Rule 4b wipes the slate clean every time a job gives up the CPU. The fix is to keep a running total instead:<span class="cite">Bilal slides, Ch 8 p.21</span></p>
+<p>Why does the gaming trick work? Rule 4b wipes the slate clean every time a job gives up the CPU. So a job that always stops just short of a full slice never moves down. The fix: keep a running total of the job's time at its level. This total budget is the job's <strong>time allotment</strong>.<span class="cite">Bilal slides, Ch 8 p.21</span></p>
 <div class="box key"><span class="tag">Rule 4 (rewrite of Rules 4a &amp; 4b)</span>
 Once a job exhausts its total time allocation at a given priority level, no matter how many times it voluntarily relinquishes the CPU, its priority is lowered (i.e., it is moved down to a lower queue).</div>
-<p>Now the sneaky job can split its time into as many small pieces as it likes. Once the pieces add up to the allotment, it moves down.</p>
+<p>Now the sneaky job can split its time into as many small pieces as it likes. Once the pieces add up to the allotment, it moves down. Example: allotment 10 ms, the job runs 9 ms then does I/O. Next time, 1 more ms brings the total to 10, and it drops.</p>
 
 <figure>
 <svg viewBox="0 0 600 150" role="img" aria-label="Old rules: a job runs 9 ms, does I/O, and its count resets each time so it never drops. New rule: the 9 ms pieces add up, so after the 10 ms allotment it drops.">
@@ -290,6 +328,7 @@ Once a job exhausts its total time allocation at a given priority level, no matt
 </svg>
 <figcaption>Same sneaky program, two accounting rules. The new Rule 4 counts total time at the level, not time per stint.</figcaption>
 </figure>
+<p class="inshort"><strong>In short:</strong> starvation and changing behaviour → Rule 5 boost (everyone to the top every S, then they sink again). Gaming → rewritten Rule 4 (count <em>total</em> time at a level).</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Name the three problems with first-attempt MLFQ (Rules 1–3, 4a, 4b) and the fix for each.</p><div class="a"><strong>Starvation</strong> (many interactive jobs, long jobs never run) → <strong>Rule 5</strong> boost.<br><strong>Gaming the scheduler</strong> (I/O just before the slice ends keeps high priority) → <strong>Rule 4</strong> rewritten (count total time at a level).<br><strong>Changing behaviour</strong> (a CPU-bound job turns interactive but is stuck low) → <strong>Rule 5</strong> boost.</div></div>
@@ -334,18 +373,26 @@ Once a job exhausts its total time allocation at a given priority level, no matt
 
 <!-- ======================================================== -->
 <h2>From your lab: starvation, live (hunger.c)</h2>
-<p>Lab 4 addendum, "The Hunger Games": <code>hunger.c</code> runs two long jobs (3 and 4, burst 100 each) while a fresh burst-4 job arrives every 15 ticks, once with the boost off and once with a boost every 30 ticks.</p>
+<p>Lab 4 addendum, "The Hunger Games". <code>hunger.c</code> runs two long jobs (3 and 4, burst 100 each). Meanwhile, a fresh burst-4 job arrives every 15 ticks. It runs twice: once with the boost off, once with a boost every 30 ticks.</p>
 <figure class="labcode" data-src="Labs/Lab 4/hunger.c" data-lines="24-30" data-hl="26" data-caption="Every ARRIVAL_GAP ticks a new short job is created in queue 0, the top"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%204/hunger.c">Labs/Lab 4/hunger.c</a><span class="lc-span">lines 24–30</span></div><pre><span class="ln" data-n="24">void maybe_spawn_new_arrival(int now) {</span><span class="ln" data-n="25">    if (now &gt; 0 &amp;&amp; now % ARRIVAL_GAP == 0 &amp;&amp; total_jobs &lt; MAX_JOBS) {</span><span class="ln hl" data-n="26">        Job newcomer = {total_jobs + 1, now, 4, 4, 0, QUANTUM, 0, 0};</span><span class="ln" data-n="27">        job_list[total_jobs++] = newcomer;</span><span class="ln" data-n="28">        printf(&quot;[t=%d] New job: %d (burst=4)\n&quot;, now, newcomer.id);</span><span class="ln" data-n="29">    }</span><span class="ln" data-n="30">}</span></pre><figcaption>Every ARRIVAL_GAP ticks a new short job is created in queue 0, the top</figcaption></figure>
 <figure class="labcode" data-src="Labs/Lab 4/hunger.c" data-lines="48-61" data-hl="49,51,58" data-caption="Rule 5 boost (lines 49-52), then strict priority: the lowest queue number wins (line 58)"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%204/hunger.c">Labs/Lab 4/hunger.c</a><span class="lc-span">lines 48–61</span></div><pre><span class="ln" data-n="48">        // Rule 5: periodically boost every unfinished job to queue 0</span><span class="ln hl" data-n="49">        if (boost_period &gt; 0 &amp;&amp; now &gt; 0 &amp;&amp; now % boost_period == 0) {</span><span class="ln" data-n="50">            for (int i = 0; i &lt; total_jobs; i++)</span><span class="ln hl" data-n="51">                if (!job_list[i].done) job_list[i].current_queue = 0;</span><span class="ln" data-n="52">        }</span><span class="ln" data-n="53"> </span><span class="ln" data-n="54">        int pick = -1;</span><span class="ln" data-n="55">        for (int i = 0; i &lt; total_jobs; i++) {</span><span class="ln" data-n="56">            Job *j = &amp;job_list[i];</span><span class="ln" data-n="57">            if (j-&gt;done || j-&gt;arrival_time &gt; now) continue;</span><span class="ln hl" data-n="58">            if (pick == -1 || j-&gt;current_queue &lt; job_list[pick].current_queue)</span><span class="ln" data-n="59">                pick = i;</span><span class="ln" data-n="60">        }</span><span class="ln" data-n="61">        if (pick == -1) { now++; continue; }</span></pre><figcaption>Rule 5 boost (lines 49-52), then strict priority: the lowest queue number wins (line 58)</figcaption></figure>
-<p>This is the <strong>starvation</strong> row of the table above. Each newcomer starts at the top (Rule 3, the <code>0</code> in line 26), and line 58 always picks the job in the lowest-numbered queue (Rule 1). So every newcomer jumps ahead of the demoted long jobs. Lines 49–52 are <strong>Fix 1</strong>: every <code>boost_period</code> ticks, every unfinished job goes back to queue 0.</p>
+<p>This is the <strong>starvation</strong> row of the table above. In this code, queue 0 is the top.</p>
+<ul>
+<li>Each newcomer starts at the top: Rule 3, the <code>0</code> in line 26.</li>
+<li>Line 58 always picks the job in the lowest-numbered queue: Rule 1.</li>
+<li>So every newcomer jumps ahead of the demoted long jobs.</li>
+<li>Lines 49–52 are <strong>Fix 1</strong>: every <code>boost_period</code> ticks, every unfinished job goes back to queue 0.</li>
+</ul>
 <div class="table-wrap"><table>
 <thead><tr><th>Your run (gap 15)</th><th class="num">Job 3 first ran</th><th class="num">Job 3 finished</th><th class="num">Job 4 finished</th></tr></thead>
 <tbody>
 <tr><td>Boost off (<code>run_mlfq(0)</code>)</td><td class="num">13</td><td class="num">275</td><td class="num">285</td></tr>
 <tr><td>Boost every 30</td><td class="num">13</td><td class="num"><strong>243</strong></td><td class="num">285</td></tr>
 </tbody></table></div>
-<p>The boost moved Job 3's <strong>completion</strong> 32 ticks earlier but not its <strong>first run</strong>: a boost can only lift a job that has already been demoted, so it helps turnaround, not response.</p>
-<div class="labnote warn"><strong>Two shortcuts in hunger.c.</strong> (1) <code>NUM_QUEUES</code> (line 3) is defined but never used, so line 76 keeps pushing a job down with no floor. In an instrumented copy, jobs reached queue 9, so it is really a 10-level ladder. In the exam the number of queues is fixed and the bottom queue keeps its jobs. The fix is <code>if (job_list[pick].current_queue &lt; NUM_QUEUES - 1) job_list[pick].current_queue++;</code>. (2) There is no RR inside a queue: line 58's strict <code>&lt;</code> gives every tie to the lowest index, which breaks Rule 2. Your numbers are right for this code, but a copy with a 3-queue cap gave different finish times (Job 3 then beats Job 4 on index at the bottom), so don't quote 275 / 243 as general MLFQ facts. What does hold in general: while short jobs keep arriving, a demoted job only runs in the gaps they leave, and with no gaps it never runs.</div>
+<p>The boost moved Job 3's <strong>completion</strong> 32 ticks earlier. It did not move its <strong>first run</strong>. Why? A boost can only lift a job that has already been demoted. So it helps turnaround, not response.</p>
+<div class="labnote warn"><strong>Two shortcuts in hunger.c.</strong>
+<br>(1) <strong>No bottom floor.</strong> <code>NUM_QUEUES</code> (line 3) is defined but never used. So line 76 keeps pushing a job down forever. In an instrumented copy, jobs reached queue 9, so it is really a 10-level ladder. In the exam the number of queues is fixed, and the bottom queue keeps its jobs. The fix is <code>if (job_list[pick].current_queue &lt; NUM_QUEUES - 1) job_list[pick].current_queue++;</code>.
+<br>(2) <strong>No RR inside a queue.</strong> Line 58's strict <code>&lt;</code> gives every tie to the lowest index. That breaks Rule 2. Your numbers are right for this code. But a copy with a 3-queue cap gave different finish times (Job 3 then beats Job 4 on index at the bottom). So don't quote 275 / 243 as general MLFQ facts. What does hold in general: while short jobs keep arriving, a demoted job only runs in the gaps they leave. With no gaps, it never runs.</div>
 <div class="labnote">Exam angle: "Which MLFQ problem does Rule 5 fix, and what does it change?" Starvation (and changing behaviour). It improves a starving job's turnaround, not its first response.</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">In <code>hunger.c</code>, each newcomer needs 4 ticks and one arrives every 15. Which line makes them always beat Job 3, and what happens to Job 3 (with no boost) if <code>ARRIVAL_GAP</code> is 4 and the arrivals never stop?</p><div class="a">Line 58: the job with the <strong>lower queue number</strong> wins, and newcomers start in queue 0. At gap 15 newcomers use 4 of every 15 ticks, leaving 11 for the long jobs. At gap 4 they would need <strong>100%</strong> of the CPU, so a demoted Job 3 would <strong>never</strong> run again: starvation. Only a boost would rescue it.</div></div>
@@ -372,12 +419,14 @@ Once a job exhausts its total time allocation at a given priority level, no matt
 
 <!-- ======================================================== -->
 <h2>Tuning: different slices for different queues</h2>
-<p>The rules don't say how many queues to use, how long each slice is, or what S should be. A common choice:<span class="cite">Bilal slides, Ch 8 p.22–23</span></p>
+<p class="crux"><strong>The problem:</strong> the rules don't say how many queues to use, how long each slice is, or what S should be.</p>
+<p>Those numbers are up to the designer. A common choice:<span class="cite">Bilal slides, Ch 8 p.22–23</span></p>
 <ul>
-<li><strong>High-priority queues get short slices.</strong> They hold interactive jobs, which only need a moment, so switching quickly keeps response time low.</li>
-<li><strong>Low-priority queues get long slices.</strong> They hold CPU-bound jobs, so fewer context switches means less overhead. Example: 10 ms top, 20 ms middle, 40 ms bottom.</li>
+<li><strong>High-priority queues get short slices.</strong> They hold interactive jobs, which only need a moment. Switching quickly keeps response time low.</li>
+<li><strong>Low-priority queues get long slices.</strong> They hold CPU-bound jobs. Longer slices mean fewer context switches, so less overhead. Example: 10 ms top, 20 ms middle, 40 ms bottom.</li>
 <li><strong>Solaris</strong> (Time-Sharing class): 60 queues, slices from 20 ms at the top up to a few hundred ms at the bottom, priorities boosted about every 1 second.</li>
 </ul>
+<p class="inshort"><strong>In short:</strong> short slices at the top (interactive jobs, fast response), long slices at the bottom (CPU-bound jobs, less switching).</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Why do MLFQ implementations usually give high-priority queues short time slices and low-priority queues long ones?</p><div class="a">Top queues hold <strong>interactive</strong> jobs that need only a brief turn, so short slices keep <strong>response time</strong> low. Bottom queues hold <strong>CPU-bound</strong> jobs, so long slices mean <strong>fewer context switches</strong> (less overhead). Example: 10 / 20 / 40 ms.</div></div>
@@ -395,10 +444,16 @@ Once a job exhausts its total time allocation at a given priority level, no matt
 
 <!-- ======================================================== -->
 <h2>Worked trace: slices 2, 4, then FCFS</h2>
+<p class="crux"><strong>The problem:</strong> the exam gives you jobs and queue slices, and asks you to trace MLFQ by hand.</p>
 <p>This is the format Dr. Zafar's quiz uses. Three queues: <strong>top slice = 2</strong>, <strong>middle slice = 4</strong>, <strong>bottom = FCFS</strong> (run to completion). Four jobs arrive at t = 0 in the order A, B, C, D, with bursts <strong>A = 7, B = 2, C = 10, D = 5</strong>. No boost.</p>
 <ol class="steps">
-<li><strong>Top queue round (RR, slice 2).</strong> A 0–2, B 2–4, C 4–6, D 6–8. B needed exactly 2, so it <em>finishes</em> at 4. A, C and D each used their full slice, so they drop to the middle queue in that order.</li>
-<li><strong>Middle queue round (slice 4).</strong> The middle queue holds A (5 left), C (8 left), D (3 left). A runs 8–12 and still has 1 left, so it drops. C runs 12–16 with 4 left and drops. D needs only 3: it runs 16–19 and finishes.</li>
+<li><strong>Top queue round (RR, slice 2).</strong> A 0–2, B 2–4, C 4–6, D 6–8. B needed exactly 2, so it <em>finishes</em> at 4. A, C and D each used their full slice. They drop to the middle queue in that order.</li>
+<li><strong>Middle queue round (slice 4).</strong> The middle queue holds A (5 left), C (8 left), D (3 left).
+<ul>
+<li>A runs 8–12. It still has 1 left, so it drops.</li>
+<li>C runs 12–16. It has 4 left, so it drops.</li>
+<li>D needs only 3. It runs 16–19 and finishes.</li>
+</ul></li>
 <li><strong>Bottom queue (FCFS).</strong> A runs 19–20 and finishes, then C runs 20–24 and finishes.</li>
 </ol>
 <div data-gantt='{"lanes":[{"label":"Q2","segs":[["A",0,2],["B",2,4],["C",4,6],["D",6,8]]},{"label":"Q1","segs":[["A",8,12],["C",12,16],["D",16,19]]},{"label":"Q0","segs":[["A",19,20],["C",20,24]]}],"end":24}'></div>
@@ -412,8 +467,13 @@ Once a job exhausts its total time allocation at a given priority level, no matt
 <tr><td colspan="4"><strong>Average</strong></td><td class="num"><strong>16.75</strong></td><td class="num"><strong>3</strong></td></tr>
 </tbody></table></div>
 <div class="box exam"><span class="tag">How to draw it in the exam</span>
-Draw <strong>one row per queue</strong> (the "multi-lane" Gantt chart), as Dr. Zafar's solution does, and also write the flat sequence with times underneath: A 0–2 | B 2–4 | C 4–6 | D 6–8 | A 8–12 | C 12–16 | D 16–19 | A 19–20 | C 20–24. Two things trip people up: a job that finishes <em>exactly</em> at the end of its slice does not move down, and inside one queue the order is the order in which jobs arrived there.</div>
+Draw <strong>one row per queue</strong> (the "multi-lane" Gantt chart), as Dr. Zafar's solution does. Also write the flat sequence with times underneath: A 0–2 | B 2–4 | C 4–6 | D 6–8 | A 8–12 | C 12–16 | D 16–19 | A 19–20 | C 20–24. Two things trip people up:
+<ul style="margin:.4rem 0 0">
+<li>A job that finishes <em>exactly</em> at the end of its slice does not move down. It's done.</li>
+<li>Inside one queue, jobs run in the order they arrived <em>in that queue</em>.</li>
+</ul></div>
 <p class="small">Dr. Zafar's slides call the top queue "Queue 1"; Dr. Bilal calls it the highest-numbered queue (Q2 of three). It is only labelling, so use whatever the question uses.</p>
+<p class="inshort"><strong>In short:</strong> go queue by queue, top first. Each job runs one slice per level. Finished jobs leave; unfinished ones drop, in order. Then fill the turnaround/response table as in Lesson 5.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">MLFQ, three queues: top slice 2, middle slice 4, bottom FCFS, no boost. A (burst 4), B (burst 1), C (burst 8) all arrive at t = 0 in that order. Give the timeline and the average turnaround and response.</p><div class="a">Top: A 0–2 (drops), B 2–3 (done), C 3–5 (drops). Middle: A 5–7 (done), C 7–11 (2 left, drops). Bottom: C 11–13.<br>A 0–2 | B 2–3 | C 3–5 | A 5–7 | C 7–11 | C 11–13.<br>Turnaround: (7 + 3 + 13)/3 = 23/3 ≈ <strong>7.67</strong>. Response: (0 + 2 + 3)/3 = 5/3 ≈ <strong>1.67</strong>.</div></div>
@@ -440,7 +500,11 @@ Draw <strong>one row per queue</strong> (the "multi-lane" Gantt chart), as Dr. Z
 
 <!-- ======================================================== -->
 <h2>From your lab: the MLFQ rules in C (mlfq.c)</h2>
-<p>Lab 4, Task 3: <code>mlfq.c</code> runs three jobs (1: burst 4, 2: burst 5, 3: burst 30, all at t = 0) through 3 queues twice: MLFQ1 with allotments 3 / 3 / 3 and MLFQ2 with 3 / 6 / 12, boosting every 15 ticks.</p>
+<p>Lab 4, Task 3. <code>mlfq.c</code> runs three jobs through 3 queues: job 1 (burst 4), job 2 (burst 5) and job 3 (burst 30), all at t = 0. It runs them twice, boosting every 15 ticks both times:</p>
+<ul>
+<li>MLFQ1: allotments 3 / 3 / 3.</li>
+<li>MLFQ2: allotments 3 / 6 / 12.</li>
+</ul>
 <p>Every rule from <strong>The five rules</strong> has its own few lines:</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Rule</th><th>What it says</th><th>Where in mlfq.c</th></tr></thead>
@@ -454,9 +518,11 @@ Draw <strong>one row per queue</strong> (the "multi-lane" Gantt chart), as Dr. Z
 <figure class="labcode" data-src="Labs/Lab 4/mlfq.c" data-lines="4-8" data-hl="7,8" data-caption="The knobs: 3 queues, a 1-tick RR slice, and a boost every 15 ticks"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%204/mlfq.c">Labs/Lab 4/mlfq.c</a><span class="lc-span">lines 4–8</span></div><pre><span class="ln" data-n="4">// --- SCHEDULER CONFIGURATION ---</span><span class="ln" data-n="5">#define MAX_JOBS 10</span><span class="ln" data-n="6">#define Q_LEVELS 3</span><span class="ln hl" data-n="7">#define RR_TIME_SLICE 1 // Now, Round Robin is undeniable</span><span class="ln hl" data-n="8">#define BOOST_TIME 15   // Priority boost triggers every 15 ticks</span></pre><figcaption>The knobs: 3 queues, a 1-tick RR slice, and a boost every 15 ticks</figcaption></figure>
 <p class="small">Numbering: in the code, queue <strong>0 is the top</strong>, and the printout labels the columns Q1, Q2, Q3 from top to bottom (Dr. Zafar's style). Dr. Bilal would call the top queue Q2. Same ladder, different labels.</p>
 <figure class="labcode" data-src="Labs/Lab 4/mlfq.c" data-lines="162-181" data-hl="165,169,170,177" data-caption="Rule 4 (allotment used up, move down one level) and Rule 2 (slice used up, back of the same queue)"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%204/mlfq.c">Labs/Lab 4/mlfq.c</a><span class="lc-span">lines 162–181</span></div><pre><span class="ln" data-n="162">        //RULE 4: Once a job exhausts its total allotment at a given level</span><span class="ln" data-n="163">        //its priority is reduced.</span><span class="ln" data-n="164"> </span><span class="ln hl" data-n="165">        else if (jobs[current_job_index].allot_left &lt;= 0) {</span><span class="ln" data-n="166">            int next_q=jobs[current_job_index].current_queue+ 1;</span><span class="ln" data-n="167">            if (next_q &gt;= Q_LEVELS) next_q = Q_LEVELS - 1;</span><span class="ln" data-n="168"> </span><span class="ln hl" data-n="169">            jobs[current_job_index].current_queue = next_q;</span><span class="ln hl" data-n="170">            jobs[current_job_index].allot_left = quanta[next_q];</span><span class="ln" data-n="171">            enqueue(next_q, current_job_index);</span><span class="ln" data-n="172">            current_job_index = -1;</span><span class="ln" data-n="173">        }</span><span class="ln" data-n="174"> </span><span class="ln" data-n="175">        // RULE 2: If priority(A) == Priority(B), they run in RR.</span><span class="ln" data-n="176"> </span><span class="ln hl" data-n="177">        else if (slice_used &gt;= RR_TIME_SLICE) {</span><span class="ln" data-n="178">            enqueue(jobs[current_job_index].current_queue,</span><span class="ln" data-n="179">                current_job_index);</span><span class="ln" data-n="180">            current_job_index = -1;</span><span class="ln" data-n="181">        }</span></pre><figcaption>Rule 4 (allotment used up, move down one level) and Rule 2 (slice used up, back of the same queue)</figcaption></figure>
-<p>Look at what is <em>not</em> here: when a job goes to the back of its queue on line 178, <code>allot_left</code> is <strong>not</strong> reset. It keeps counting down across turns, and is refilled only on demotion (line 170) or boost. That is the rewritten Rule 4 from <strong>Fix 2: better accounting</strong>: total time at a level, not time per turn, so no gaming.</p>
+<p>Look at what is <em>not</em> here. When a job goes to the back of its queue (line 178), <code>allot_left</code> is <strong>not</strong> reset. It keeps counting down across turns. It is refilled only on demotion (line 170) or a boost. That is the rewritten Rule 4 from <strong>Fix 2: better accounting</strong>: total time at a level, not time per turn. So no gaming.</p>
 <p>Your write-up's result: turnaround 10 / 13 / 39 and response 0 / 1 / 2 in <em>both</em> configs. The difference was Job 3's ticks in the bottom queue: <strong>12 under 3 / 3 / 3 but 6 under 3 / 6 / 12</strong>. A bigger middle allotment keeps the long job in the middle queue for longer. That is the "different slices for different queues" idea from <strong>Tuning</strong>.</p>
-<div class="labnote warn"><strong>Not the same as an exam trace.</strong> In <code>mlfq.c</code>, <code>quanta[]</code> is the <em>allotment</em> per level, and the slice is <code>RR_TIME_SLICE = 1</code>. So jobs in one queue take turns every tick (your trace: 1, 2, 3, 1, 2, 3, …). In exam traces like the worked trace above, a job runs its <em>whole</em> slice at a level before the next job goes (A 0–2, B 2–4, …). With the worked-trace jobs (A 7, B 2, C 10, D 5), allotments 2 / 4 / 100 and no boost, a copy of your code gives turnarounds 20 / 6 / 24 / 17. Set <code>RR_TIME_SLICE</code> to 100 and it reproduces the lesson's answer exactly: 20 / 4 / 24 / 19, response 0 / 2 / 4 / 6. On paper, use the exam convention unless the question says the slice is smaller than the allotment.</div>
+<div class="labnote warn"><strong>Not the same as an exam trace.</strong> In <code>mlfq.c</code>, <code>quanta[]</code> is the <em>allotment</em> per level. The slice is separate: <code>RR_TIME_SLICE = 1</code>. So jobs in one queue take turns every tick (your trace: 1, 2, 3, 1, 2, 3, …). In exam traces like the worked trace above, a job runs its <em>whole</em> slice at a level before the next job goes (A 0–2, B 2–4, …).
+<br>Test: take the worked-trace jobs (A 7, B 2, C 10, D 5), allotments 2 / 4 / 100, no boost. A copy of your code gives turnarounds 20 / 6 / 24 / 17. Set <code>RR_TIME_SLICE</code> to 100 and it reproduces the lesson's answer exactly: 20 / 4 / 24 / 19, response 0 / 2 / 4 / 6.
+<br>On paper, use the exam convention, unless the question says the slice is smaller than the allotment.</div>
 <div class="labnote">Exam angle: "which rule does this code implement?" Match the line to the rule: <code>current_queue = 0</code> at entry is Rule 3, <code>next_q = current_queue + 1</code> is Rule 4, <code>% BOOST_TIME</code> is Rule 5.</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">Your MLFQ1 trace starts 1, 2, 3, 1, 2, 3, 1, 2, 3 in the top queue. What would the first 9 ticks be if you changed <code>RR_TIME_SLICE</code> to 3 (everything else the same)?</p><div class="a"><strong>1, 1, 1, 2, 2, 2, 3, 3, 3</strong>, then all three drop to the middle queue. Each job now uses its full 3-tick allotment in one turn. (Checked by running a copy.)</div></div>

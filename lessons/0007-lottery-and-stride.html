@@ -16,10 +16,10 @@
 
 <p class="kicker">Lesson 7 · CPU scheduling</p>
 <h1>Lottery and stride: sharing by tickets</h1>
-<p class="lede">MLFQ tries to guess which jobs are short. Proportional-share schedulers ask a different question: what fraction of the CPU should each job get? Then they make sure each job gets it.</p>
+<p class="lede">MLFQ tries to guess which jobs are short. This lesson asks a different question. What fraction of the CPU should each job get? Then the scheduler makes sure each job gets that fraction.</p>
 
 <div class="box key"><span class="tag">The one-sentence version</span>
-A <strong>proportional-share</strong> (fair-share) scheduler guarantees that each job obtains a certain percentage of CPU time. It is <em>not</em> optimized for turnaround or response time.<span class="cite">Bilal slides, Ch 9A p.3</span> Lottery scheduling hits the percentages <em>on average</em> by drawing random tickets. Stride scheduling hits them <em>exactly</em> by keeping a counter for each job.</div>
+A <strong>proportional-share</strong> (fair-share) scheduler guarantees that each job obtains a certain percentage of CPU time. It is <em>not</em> optimized for turnaround or response time.<span class="cite">Bilal slides, Ch 9A p.3</span> There are two ways to do it. <strong>Lottery</strong> draws random tickets, so it hits the percentages <em>on average</em>. <strong>Stride</strong> keeps a counter for each job, so it hits them <em>exactly</em>.</div>
 
 <div class="warmup">
 <div class="rc"><p class="q">Under MLFQ, which rule stops a job gaming the scheduler, and how? (Lesson 6)</p><div class="a">The rewritten <strong>Rule 4</strong>: once a job uses up its <strong>time allotment</strong> at a level, it moves down, <strong>no matter how many times it gave up the CPU</strong>. Its small pieces add up, so doing I/O just before the slice ends no longer helps.</div></div>
@@ -29,8 +29,10 @@ A <strong>proportional-share</strong> (fair-share) scheduler guarantees that eac
 
 <!-- ======================================================== -->
 <h2>Tickets represent a share</h2>
-<p>Each job holds some number of <strong>tickets</strong>. Its percentage of all the tickets is its share of the resource.<span class="cite">Bilal slides, Ch 9A p.4</span></p>
-<p class="small" style="margin-bottom:0">Example: A holds 75 tickets and B holds 25, so A should get 75% of the CPU and B 25%.</p>
+<p class="crux"><strong>The problem:</strong> we want to say "A gets 75% of the CPU, B gets 25%". How do we write that down in a way the scheduler can use?</p>
+<p>The book's answer is a raffle. A <strong>ticket</strong> is a token that stands for a share of the CPU. The more tickets a job holds, the bigger its share.<span class="cite">Bilal slides, Ch 9A p.4</span></p>
+<p>The rule: a job's share = its tickets ÷ all the tickets.</p>
+<p class="small" style="margin-bottom:0">Example: A holds 75 tickets and B holds 25. Total = 100. So A should get 75/100 = 75% of the CPU and B 25%.</p>
 <figure style="margin-top:.6rem">
 <svg viewBox="0 0 600 70" role="img" aria-label="A bar of 100 tickets: A holds tickets 0 to 74, B holds 75 to 99">
   <rect x="10" y="10" width="435" height="32" rx="4" fill="var(--s1)"/>
@@ -43,6 +45,7 @@ A <strong>proportional-share</strong> (fair-share) scheduler guarantees that eac
   <text x="590" y="60" text-anchor="end" class="fig-ink2" font-size="11" font-family="var(--mono)">99</text>
 </svg>
 </figure>
+<p class="inshort"><strong>In short:</strong> share = your tickets ÷ total tickets. Proportional share is about percentages of CPU, not turnaround or response time.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">What does a proportional-share (fair-share) scheduler guarantee, and what is it <em>not</em> optimised for?</p><div class="a">It guarantees that <strong>each job gets a certain percentage of CPU time</strong> (its share of the tickets). It is <strong>not</strong> optimised for turnaround or response time.</div></div>
@@ -60,10 +63,11 @@ A <strong>proportional-share</strong> (fair-share) scheduler guarantees that eac
 
 <!-- ======================================================== -->
 <h2>Lottery scheduling</h2>
-<p>Every time slice, the scheduler <strong>picks a winning ticket</strong> at random, then loads the state of the process that holds it and runs it.<span class="cite">Bilal slides, Ch 9A p.5</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP §9.1</a></p>
+<p class="crux"><strong>The problem:</strong> we have tickets. How do we turn them into "who runs next?" so that A really ends up with about 75%?</p>
+<p>Hold a lottery every time slice. The scheduler <strong>picks a winning ticket</strong> at random. The process holding that ticket runs for one slice. A job with 75 of 100 tickets wins about 75% of the draws.<span class="cite">Bilal slides, Ch 9A p.5</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP §9.1</a></p>
 
 <h3>Step 1 · Total tickets and winning ranges</h3>
-<p>Line the jobs up and give each one a block of consecutive ticket numbers. Example: a web server W with 50 tickets, a database D with 30, and a backup job K with 20.</p>
+<p>First, number the tickets. Line the jobs up. Give each job a block of ticket numbers, one after the other. Example: a web server W with 50 tickets, a database D with 30, and a backup job K with 20.</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Job</th><th class="num">Tickets</th><th class="num">Range (from 0, like the slides)</th><th class="num">Range (from 1)</th><th class="num">Share</th></tr></thead>
 <tbody>
@@ -73,10 +77,21 @@ A <strong>proportional-share</strong> (fair-share) scheduler guarantees that eac
 <tr><td><strong>Total</strong></td><td class="num"><strong>100</strong></td><td></td><td></td><td></td></tr>
 </tbody></table></div>
 <div class="box exam"><span class="tag">This is how it's asked (and a numbering trap)</span>
-"(a) total tickets, (b) the winning range for each process, (c) a random number is drawn: which process runs?" Dr. Bilal's slides number tickets <strong>from 0</strong> (A: 0–74, B: 75–99), and so does <code>rand() % total</code> in your Lab 4 <code>lottery.c</code>. Dr. Zafar's quiz said "a random number between 1 and the total", so it used ranges <strong>from 1</strong> (e.g. 1–5, 6–8, 9–10). Read which one the question uses and say so in your answer.</div>
+"(a) total tickets, (b) the winning range for each process, (c) a random number is drawn: which process runs?"
+<ul style="margin:.3rem 0 0;padding-left:1.2rem">
+<li>Dr. Bilal's slides number tickets <strong>from 0</strong> (A: 0–74, B: 75–99). So does <code>rand() % total</code> in your Lab 4 <code>lottery.c</code>.</li>
+<li>Dr. Zafar's quiz said "a random number between 1 and the total". So it used ranges <strong>from 1</strong> (e.g. 1–5, 6–8, 9–10).</li>
+</ul>
+Read which one the question uses, and say so in your answer.</div>
 
 <h3>Step 2 · Draw, then walk the list</h3>
-<p>The implementation keeps the jobs in a list. Draw a winner, then walk the list adding each job's tickets to a <code>counter</code>. Stop at the first job where the counter goes past the winner.<span class="cite">Bilal slides, Ch 9A p.9</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP Fig 9.1</a></p>
+<p>The code doesn't store the ranges. It keeps the jobs in a list and works the ranges out as it goes:</p>
+<ol>
+<li>Draw a random winning number.</li>
+<li>Walk the list. Add each job's tickets to a running total called <code>counter</code>.</li>
+<li>Stop at the first job where the counter goes <em>past</em> the winner (counter &gt; winner). That job runs.</li>
+</ol>
+<p class="small"><span class="cite">Bilal slides, Ch 9A p.9</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP Fig 9.1</a></p>
 <pre><code>winner  = random(0, totaltickets - 1);
 counter = 0;
 for (job = head; job; job = job-&gt;next) {
@@ -90,11 +105,12 @@ run(job);</code></pre>
 <li>K: counter = 30 + 20 = 50. Is 50 &gt; 62? No, keep going.</li>
 <li>W: counter = 50 + 50 = 100. Is 100 &gt; 62? Yes. <strong>W runs.</strong></li>
 </ol>
-<p class="small">The list order changes who owns which numbers, but not anyone's <em>share</em>. Sorting the list with the biggest ticket holder first makes the walk shorter on average.</p>
+<p class="small">The list order changes who owns which numbers. It does not change anyone's <em>share</em>. Putting the biggest ticket holder first just makes the walk shorter on average.</p>
 
 <h3>Try it: the draw machine</h3>
 <p>Press <strong>Draw</strong> a few times, then <strong>Draw 1000</strong>. Watch the actual shares creep towards the ticket shares.</p>
 <div data-lottery='{"jobs":[["W",50],["D",30],["K",20]]}'></div>
+<p class="inshort"><strong>In short:</strong> give each job a range of ticket numbers, draw one number, and the owner of that number runs. In code: walk the list and stop when counter &gt; winner. Always say whether tickets start at 0 or 1.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Lottery. Jobs listed in order X (25 tickets), Y (60), Z (15). Give the ranges numbered from 0 and from 1. The winning number is 85: who runs in each case?</p><div class="a">From 0: X 0–24, Y 25–84, Z 85–99 → <strong>Z</strong>.<br>From 1: X 1–25, Y 26–85, Z 86–100 → <strong>Y</strong>.<br>Same draw, different winner, so always say which numbering the question uses.</div></div>
@@ -112,16 +128,18 @@ run(job);</code></pre>
 
 <!-- ======================================================== -->
 <h2>Fair only in the long run</h2>
-<p>Lottery is <strong>probabilistic</strong>. Nothing stops B from winning three times in a row. On Dr. Bilal's slide, A holds 75 of 100 tickets, yet B wins 4 of the 15 draws shown (27%, not 25%). "The longer these two jobs compete, the more likely they are to achieve the desired percentages."<span class="cite">Bilal slides, Ch 9A p.6</span></p>
+<p class="crux"><strong>The problem:</strong> lottery uses luck. How close does it really get to the ticket shares, and when does it miss?</p>
+<p>Lottery is <strong>probabilistic</strong>: it depends on chance. Think of tossing a coin. Ten tosses might give 7 heads. A thousand tosses give close to 500.</p>
+<p>Lottery works the same way. Nothing stops B from winning three times in a row. On Dr. Bilal's slide, A holds 75 of 100 tickets, yet B wins 4 of the 15 draws shown (27%, not 25%). "The longer these two jobs compete, the more likely they are to achieve the desired percentages."<span class="cite">Bilal slides, Ch 9A p.6</span></p>
 
 <h3>Measuring it: the unfairness metric U</h3>
-<p>Run two jobs with the <strong>same</strong> runtime and the <strong>same</strong> tickets. A perfectly fair scheduler would finish them at almost the same moment.</p>
+<p>How do we put a number on "how unfair"? Run two jobs with the <strong>same</strong> runtime and the <strong>same</strong> tickets. A perfectly fair scheduler would finish them at almost the same moment. So compare their finish times.</p>
 <div class="box key"><span class="tag">Unfairness metric</span>
 <strong>U = (time the first job completes) / (time the second job completes)</strong>. U = 1 is perfectly fair, and a U far below 1 is unfair.<span class="cite">Bilal slides, Ch 9A p.10</span></div>
-<p>Example: both jobs need 20 time units. One finishes at 28 and the other at 40, so U = 28 / 40 = <strong>0.7</strong>. OSTEP's study shows that U is poor when jobs are short and only gets close to 1 when they run for a long time.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP Fig 9.2</a></p>
+<p>Example: both jobs need 20 time units. One finishes at 28 and the other at 40. So U = 28 / 40 = <strong>0.7</strong>. OSTEP's study shows that U is poor when jobs are short. It only gets close to 1 when jobs run for a long time (many draws, like many coin tosses).<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP Fig 9.2</a></p>
 
 <h3>Why short jobs don't match their ticket ratios</h3>
-<p>Two separate effects are at work. Here is an example that shows both. Three jobs each need exactly <strong>3</strong> time slices. P has 50 tickets, Q has 40, and R has 10. Tickets are numbered from 0, as in <code>lottery.c</code>.</p>
+<p>This one comes up in exams. Two separate effects are at work, and one example shows both. Three jobs each need exactly <strong>3</strong> time slices. P has 50 tickets, Q has 40, and R has 10. Tickets are numbered from 0, as in <code>lottery.c</code>.</p>
 <div class="table-wrap"><table>
 <thead><tr><th class="num">Draw</th><th>Tickets in the pool</th><th class="num">Winner</th><th>Runs</th><th>Note</th></tr></thead>
 <tbody>
@@ -137,11 +155,12 @@ run(job);</code></pre>
 </tbody></table></div>
 <p>Final count: <strong>P 3, Q 3, R 3</strong>, not 50 : 40 : 10. Why?</p>
 <ol>
-<li><strong>A finished job leaves the pool.</strong> Each job needs only 3 slices, so it can never run more than 3 times. Once the big ticket holders are done, the small one has the CPU to itself and wins every draw. Over the whole run, more tickets didn't mean more CPU time. It meant <em>running earlier and finishing sooner</em>. (In <code>lottery.c</code>, that is the line <code>total_tickets -= jobs[i].tickets</code>.)</li>
-<li><strong>A few draws are just noise.</strong> Even while all three were competing (draws 1–4), only 4 draws happened. With so few draws, the counts can't settle to 50 : 40 : 10. Proportional share is a promise about long, continuous competition.</li>
+<li><strong>A finished job leaves the pool.</strong> Each job needs only 3 slices, so it can never run more than 3 times. When a big ticket holder finishes, its tickets leave with it. In the end the small job is alone and wins every draw. So more tickets didn't mean more CPU time in total. It meant <em>running earlier and finishing sooner</em>. (In <code>lottery.c</code>, that is the line <code>total_tickets -= jobs[i].tickets</code>.)</li>
+<li><strong>A few draws are just noise.</strong> All three jobs competed for only 4 draws (draws 1–4). That is like tossing a coin 4 times. The counts can't settle to 50 : 40 : 10 that fast. Proportional share is a promise about long, continuous competition.</li>
 </ol>
 <div class="box exam"><span class="tag">This is how it's asked</span>
 You get a run log in which every process ran the same number of times despite very different tickets, and you're asked "shouldn't they run in proportion to their tickets? Explain." Answer in this order: (1) each job has a short, fixed burst, so it can only win that many times; (2) the high-ticket job tends to win early, finishes, and <strong>leaves the pool with its tickets</strong>; (3) the remaining jobs then split a smaller pool, and the last job wins every draw; (4) lottery only guarantees the ticket ratio over <strong>long-running</strong> competition. Go through the log and mark where each job leaves.</div>
+<p class="inshort"><strong>In short:</strong> lottery is fair only on average, over a long time. Measure it with U = first finish ÷ second finish (1 = fair). Short jobs break the ticket ratio because finished jobs leave the pool and a few draws are just luck.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Define the lottery unfairness metric U. Two equal jobs each need 50 time units; one finishes at 60 and the other at 100. What is U, and when does U get close to 1?</p><div class="a"><strong>U = (time the first job completes) / (time the second job completes)</strong> = 60/100 = <strong>0.6</strong>. U = 1 is perfectly fair. U gets close to 1 only when jobs <strong>run for a long time</strong>.</div></div>
@@ -170,15 +189,20 @@ You get a run log in which every process ran the same number of times despite ve
 <h2>From your lab: lottery in C (lottery.c)</h2>
 <p>Lab 4, Task 1: <code>lottery.c</code> runs three processes, each needing 5 slices, with 60, 30 and 10 tickets, drawing one winner per slice.</p>
 <figure class="labcode" data-src="Labs/Lab 4/lottery.c" data-lines="22-31" data-hl="24,30" data-caption="Add up the tickets, then draw a winner from 0 to total minus 1"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%204/lottery.c">Labs/Lab 4/lottery.c</a><span class="lc-span">lines 22–31</span></div><pre><span class="ln" data-n="22">void run_lottery(Process jobs[], int num_jobs){</span><span class="ln" data-n="23">    int total_tickets = 0;</span><span class="ln hl" data-n="24">    for (int i = 0; i &lt; num_jobs; i++) total_tickets += jobs[i].tickets;</span><span class="ln" data-n="25"> </span><span class="ln" data-n="26">    srand(time(NULL));</span><span class="ln" data-n="27">    int completed = 0;</span><span class="ln" data-n="28"> </span><span class="ln" data-n="29">    while (completed &lt; num_jobs){</span><span class="ln hl" data-n="30">        int winning_ticket = rand() % total_tickets;</span><span class="ln" data-n="31">        int ticket_count = 0;</span></pre><figcaption>Add up the tickets, then draw a winner from 0 to total minus 1</figcaption></figure>
-<p>Line 30 is Step 1's numbering: <code>rand() % total_tickets</code> gives 0 … total − 1, so tickets are numbered <strong>from 0</strong> (P1 0–59, P2 60–89, P3 90–99), like Dr. Bilal's slides.</p>
+<p>Line 30 is Step 1's numbering. <code>rand() % total_tickets</code> gives a number from 0 to total − 1. So tickets are numbered <strong>from 0</strong> (P1 0–59, P2 60–89, P3 90–99), like Dr. Bilal's slides.</p>
 <figure class="labcode" data-src="Labs/Lab 4/lottery.c" data-lines="33-46" data-hl="35,36,43" data-caption="The list walk: add each live job's tickets until the count passes the winner"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%204/lottery.c">Labs/Lab 4/lottery.c</a><span class="lc-span">lines 33–46</span></div><pre><span class="ln" data-n="33">        for (int i = 0; i &lt;num_jobs; i++){</span><span class="ln" data-n="34">            if (jobs[i].remaining_time &gt; 0){</span><span class="ln hl" data-n="35">                ticket_count += jobs[i].tickets;</span><span class="ln hl" data-n="36">                if (winning_ticket &lt; ticket_count) {</span><span class="ln" data-n="37">                    printf(&quot;Winning Ticket: %d | Process %d runs!\n&quot;,</span><span class="ln" data-n="38">                        winning_ticket, jobs[i].pid);</span><span class="ln" data-n="39">                    jobs[i].remaining_time--;</span><span class="ln" data-n="40"> </span><span class="ln" data-n="41">                    if (jobs[i].remaining_time == 0){</span><span class="ln" data-n="42">                        completed++;</span><span class="ln hl" data-n="43">                        total_tickets -= jobs[i].tickets;</span><span class="ln" data-n="44">                    }</span><span class="ln" data-n="45">                    break;</span><span class="ln" data-n="46">                }</span></pre><figcaption>The list walk: add each live job's tickets until the count passes the winner</figcaption></figure>
-<p>This is Step 2's list walk. <code>ticket_count</code> is the slides' <code>counter</code>, and line 36's <code>winning_ticket &lt; ticket_count</code> is the same test as "counter &gt; winner", just written the other way round. Line 34 skips finished jobs and line 43 removes a finished job's tickets from the total. Together they are <strong>"a finished job leaves the pool"</strong> from <strong>Fair only in the long run</strong>: the ranges are renumbered without it.</p>
+<p>This is Step 2's list walk. Match it to the slides:</p>
+<ul>
+<li><code>ticket_count</code> is the slides' <code>counter</code>.</li>
+<li>Line 36, <code>winning_ticket &lt; ticket_count</code>, is the same test as "counter &gt; winner", written the other way round.</li>
+<li>Line 34 skips finished jobs. Line 43 removes a finished job's tickets from the total. Together they are <strong>"a finished job leaves the pool"</strong> from <strong>Fair only in the long run</strong>. The ranges are renumbered without that job.</li>
+</ul>
 <p>Your first run in the write-up (P1 had its 5 slices by draw 9, P2 by draw 12):</p>
 <pre><code>34 → P1   20 → P1   77 → P2   96 → P3   89 → P2
  7 → P1   42 → P1   97 → P3   51 → P1   28 → P2
 13 → P2    5 → P2    5 → P3    5 → P3    7 → P3</code></pre>
-<p>Every run ended 5 / 5 / 5, and the last draws always went to P3. Once it was alone, its 10 tickets were the whole pool (0–9). That is exactly the "short jobs don't match their ticket ratios" effect, in your own output.</p>
-<div class="labnote">Exam angle: given a draw and a list, walk it like lines 33–36. Given a run log where every process ran equally often, explain it with lines 34 and 43: fixed short bursts, and finished jobs leave the pool.</div>
+<p>Every run ended 5 / 5 / 5. The last draws always went to P3. Once P3 was alone, its 10 tickets were the whole pool (0–9). That is the "short jobs don't match their ticket ratios" effect, in your own output.</p>
+<div class="labnote">Exam angle: given a draw and a list, walk it like lines 33–36. Given a run log where every process ran equally often, explain it with lines 34 and 43. The bursts are short and fixed, and finished jobs leave the pool.</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">lottery.c with tickets P1 60, P2 30, P3 10 (all running). <code>winning_ticket</code> is 65: walk lines 33–36 and say who runs. Later P1 has finished and the draw is 35: who runs now?</p><div class="a">First draw: P1 count 60, is 65 &lt; 60? No. P2 count 90, is 65 &lt; 90? Yes → <strong>P2</strong>.<br>After P1 finishes, total = 40 and P1 is skipped. P2 count 30, is 35 &lt; 30? No. P3 count 40, is 35 &lt; 40? Yes → <strong>P3</strong> (P2 now owns 0–29, P3 owns 30–39).</div></div>
 <div class="rc"><p class="q">Dr. Zafar's style numbers tickets from 1. Which two parts of lottery.c would you change to match, and how?</p><div class="a">Line 30: <code>int winning_ticket = rand() % total_tickets + 1;</code> (now 1 … total). Line 36: <code>if (winning_ticket &lt;= ticket_count)</code>, so ticket 60 still belongs to P1 (range 1–60).</div></div>
@@ -205,6 +229,8 @@ You get a run log in which every process ran the same number of times despite ve
 
 <!-- ======================================================== -->
 <h2>Ticket mechanisms</h2>
+<p class="crux"><strong>The problem:</strong> tickets are a handy currency. What useful tricks can users and processes do with them?</p>
+<p>The book lists three. Each one is like something you can do with real money.</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Mechanism</th><th>What it does</th><th>When it's useful</th></tr></thead>
 <tbody>
@@ -215,6 +241,7 @@ You get a run log in which every process ran the same number of times despite ve
 <p class="small"><span class="cite">Bilal slides, Ch 9A p.7–8</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP §9.3</a></p>
 
 <h3>Currency, worked</h3>
+<p>Think of exchanging money. User X pays in "X-units", and the system converts them into real (global) tickets at X's exchange rate.</p>
 <p>The system has 200 global tickets: user X owns 100 and user Y owns 100. Each user splits their own share in a private currency.</p>
 <figure>
 <svg viewBox="0 0 600 170" role="img" aria-label="User X has 100 global tickets and splits 400 local units into 300 for X1 and 100 for X2, giving 75 and 25 global. User Y has 100 global and gives all 20 local units to Y1, giving 100 global.">
@@ -241,6 +268,7 @@ You get a run log in which every process ran the same number of times despite ve
 </svg>
 <figcaption>global tickets = (local tickets / user's total local) × user's global tickets. The lottery is then held over 75 + 25 + 100 = 200 global tickets.</figcaption>
 </figure>
+<p class="inshort"><strong>In short:</strong> <strong>currency</strong> = split your tickets in your own units (convert: local ÷ your total local × your global). <strong>Transfer</strong> = lend tickets to another process. <strong>Inflation</strong> = change your own ticket count, only safe among trusting processes.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Name the three ticket mechanisms and say what each does.</p><div class="a"><strong>Ticket currency</strong>: a user splits their tickets among their own jobs in a local currency, converted to global tickets. <strong>Ticket transfer</strong>: a process temporarily hands its tickets to another (e.g. client → server). <strong>Ticket inflation</strong>: a process temporarily raises or lowers its own tickets; only safe among processes that <strong>trust</strong> each other.</div></div>
@@ -267,19 +295,22 @@ You get a run log in which every process ran the same number of times despite ve
 
 <!-- ======================================================== -->
 <h2>Stride scheduling: lottery without the dice</h2>
-<p>"Lottery scheduling is random; we can make it deterministic using stride scheduling."<span class="cite">Bilal slides, Ch 9A p.14</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP §9.6</a></p>
+<p class="crux"><strong>The problem:</strong> lottery is only right on average, and short runs can be unlucky. Can we hit the exact shares every time, with no luck at all?</p>
+<p>"Lottery scheduling is random; we can make it deterministic using stride scheduling." <strong>Deterministic</strong> means the same input always gives the same schedule.<span class="cite">Bilal slides, Ch 9A p.14</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP §9.6</a></p>
 <div class="box key"><span class="tag">The three formulas</span>
 <strong>stride = (a large number) / (number of tickets)</strong>, for example 10,000 / tickets.<br>
 Every job starts with <strong>pass = 0</strong>.<br>
 Each time: <strong>run the job with the lowest pass</strong>, then <strong>pass += stride</strong> for that job only.</div>
-<p>More tickets give a smaller stride, so the job's pass grows slowly and it keeps coming back to the front. Think of runners: a big-ticket job takes tiny steps, so the scheduler keeps letting it take another one.</p>
+<p>Two new terms. A job's <strong>stride</strong> is its step size: how much its counter grows each time it runs. Its <strong>pass</strong> is the counter itself: the total of all its steps so far.</p>
+<p>Think of runners on a track. The scheduler always lets the runner who is furthest behind take the next step. A job with many tickets has a small stride, so it takes tiny steps. It stays behind, so it keeps getting another turn. A job with few tickets takes giant steps and quickly jumps ahead, so it waits longer.</p>
+<p class="small">Tiny example: big number 100. A has 50 tickets → stride 2. B has 25 tickets → stride 4. Each time B runs once, A runs twice. That matches 50 : 25.</p>
 <pre><code>curr = remove_min(queue);     // pick client with min pass
 schedule(curr);               // run for quantum
 curr-&gt;pass += curr-&gt;stride;   // update pass using stride
 insert(queue, curr);          // return curr to queue</code></pre>
 
 <h3>Building the table, row by row</h3>
-<p>Jobs A = 40 tickets, B = 80, C = 200, with a large number of 10,000. Strides: A = 10,000/40 = <strong>250</strong>, B = 10,000/80 = <strong>125</strong>, C = 10,000/200 = <strong>50</strong>.</p>
+<p>Jobs A = 40 tickets, B = 80, C = 200, with a large number of 10,000. First work out the strides: A = 10,000/40 = <strong>250</strong>, B = 10,000/80 = <strong>125</strong>, C = 10,000/200 = <strong>50</strong>. Then fill the table one row at a time.</p>
 <div class="table-wrap"><table>
 <thead><tr><th class="num">#</th><th class="num">Pass(A)<br><small>stride 250</small></th><th class="num">Pass(B)<br><small>stride 125</small></th><th class="num">Pass(C)<br><small>stride 50</small></th><th>Who runs?</th><th>Why</th></tr></thead>
 <tbody>
@@ -293,17 +324,18 @@ insert(queue, curr);          // return curr to queue</code></pre>
 <tr><td class="num">8</td><td class="num">250</td><td class="num">250</td><td class="num"><span class="hl">200</span></td><td>C</td><td>lowest</td></tr>
 <tr><td class="num">9</td><td class="num"><span class="hl">250</span></td><td class="num">250</td><td class="num">250</td><td>A</td><td>all tied again → first listed</td></tr>
 </tbody></table></div>
-<p>After 8 runs (rows 1–8), A ran 1 time, B 2 times and C 5 times, which is exactly 40 : 80 : 200 = 1 : 2 : 5. And at row 9 all three passes are equal again, so the pattern repeats. That is stride's selling point: <strong>exact proportions every cycle</strong>, with no luck involved.</p>
+<p>Count rows 1–8. A ran 1 time, B 2 times and C 5 times. That is exactly 40 : 80 : 200 = 1 : 2 : 5. At row 9 all three passes are equal again, so the pattern repeats. That is stride's selling point: <strong>exact proportions every cycle</strong>, with no luck involved.</p>
 <div class="box exam"><span class="tag">The table convention (check it in Dr. Bilal's quiz)</span>
 <ul style="margin:.2rem 0 0;padding-left:1.2rem">
-<li>Each row shows the pass values <strong>before</strong> the pick. "Who runs?" is the job with the lowest pass. The <em>next</em> row adds that job's stride to its pass, and nobody else's pass changes.</li>
-<li><strong>Ties go to the job listed first</strong> (A before B before C). In Dr. Bilal's quiz table the first three rows were given as A, B, C. Row 2 had B = 0 and C = 0, and B ran, so the tie went to the first column. Your Lab 4 <code>stride.c</code> does the same thing, because it only switches on a strictly smaller pass (<code>&lt;</code>).</li>
+<li>Each row shows the pass values <strong>before</strong> the pick. "Who runs?" is the job with the lowest pass. The <em>next</em> row adds that job's stride to its pass. Nobody else's pass changes.</li>
+<li><strong>Ties go to the job listed first</strong> (A before B before C). Why? In Dr. Bilal's quiz table, row 2 had B = 0 and C = 0, and B ran. Your Lab 4 <code>stride.c</code> does the same, because it only switches on a strictly smaller pass (<code>&lt;</code>).</li>
 <li>If the stride isn't a whole number (10,000 / 30 = 333.33), say whether you keep the decimals or round. Dr. Zafar's solution accepted 333.33 or 333.</li>
 </ul></div>
 
 <h3>Try it: stride table builder</h3>
 <p>Press <strong>Next row</strong> and predict each "Who runs?" before it appears. Then add a late job D with pass 0 and watch it take over.</p>
 <div data-stride='{"jobs":[["A",40],["B",80],["C",200]],"big":10000}'></div>
+<p class="inshort"><strong>In short:</strong> stride = BIG ÷ tickets, every pass starts at 0, run the lowest pass, then add its stride to its pass only. Ties go to the first listed. More tickets → smaller stride → runs more often.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Stride scheduling: write the stride formula, the starting pass, and the rule for each pick.</p><div class="a"><strong>stride = BIG / tickets</strong> (e.g. 10,000 / tickets). Every job starts at <strong>pass = 0</strong>. Each time: <strong>run the job with the lowest pass</strong>, then <strong>pass += stride</strong> for that job only. Ties → first-listed job.</div></div>
@@ -350,17 +382,17 @@ insert(queue, curr);          // return curr to queue</code></pre>
 <h2>From your lab: stride in C (stride.c)</h2>
 <p>Lab 4, Task 2: <code>stride.c</code> runs three processes (5 slices each) with 100, 50 and 10 tickets and <code>NUMERATOR</code> 10000, and prints the pass table row by row.</p>
 <figure class="labcode" data-src="Labs/Lab 4/stride.c" data-lines="26-30" data-hl="28,29" data-caption="stride = NUMERATOR / tickets, and every pass starts at 0"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%204/stride.c">Labs/Lab 4/stride.c</a><span class="lc-span">lines 26–30</span></div><pre><span class="ln" data-n="26">    // Initialize strides</span><span class="ln" data-n="27">    for (int i = 0; i &lt; num_jobs; i++) {</span><span class="ln hl" data-n="28">        jobs[i].stride = NUMERATOR /jobs[i].tickets;</span><span class="ln hl" data-n="29">        jobs[i].pass = 0;</span><span class="ln" data-n="30">    }</span></pre><figcaption>stride = NUMERATOR / tickets, and every pass starts at 0</figcaption></figure>
-<p>These are the first two of <strong>the three formulas</strong>: strides 10000/100 = <strong>100</strong>, 10000/50 = <strong>200</strong>, 10000/10 = <strong>1000</strong>. It is integer division, so 10000/30 would give 333, not 333.33.</p>
+<p>These are the first two of <strong>the three formulas</strong>. Strides: 10000/100 = <strong>100</strong>, 10000/50 = <strong>200</strong>, 10000/10 = <strong>1000</strong>. It is integer division, so 10000/30 would give 333, not 333.33.</p>
 <figure class="labcode" data-src="Labs/Lab 4/stride.c" data-lines="45-55" data-hl="51,52" data-caption="Find the live job with the lowest pass. The strict &lt; means ties go to the job listed first"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%204/stride.c">Labs/Lab 4/stride.c</a><span class="lc-span">lines 45–55</span></div><pre><span class="ln" data-n="45">    while (completed &lt; num_jobs){</span><span class="ln" data-n="46">        int min_pass_index = -1;</span><span class="ln" data-n="47"> </span><span class="ln" data-n="48">        // Find the active process with the lowest pass value</span><span class="ln" data-n="49">        for (int i=0; i &lt;num_jobs; i++) {</span><span class="ln" data-n="50">            if (jobs[i].remaining_time &gt; 0){</span><span class="ln hl" data-n="51">                if(min_pass_index == -1 || jobs[i].pass &lt;</span><span class="ln hl" data-n="52">                    jobs[min_pass_index].pass)</span><span class="ln" data-n="53">                    min_pass_index = i;</span><span class="ln" data-n="54">            }</span><span class="ln" data-n="55">        }</span></pre><figcaption>Find the live job with the lowest pass. The strict &lt; means ties go to the job listed first</figcaption></figure>
 <figure class="labcode" data-src="Labs/Lab 4/stride.c" data-lines="63-68" data-hl="65" data-caption="The winner, and only the winner, adds its stride to its pass"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%204/stride.c">Labs/Lab 4/stride.c</a><span class="lc-span">lines 63–68</span></div><pre><span class="ln" data-n="63">        //Advance the winner</span><span class="ln" data-n="64">        jobs[min_pass_index].remaining_time--;</span><span class="ln hl" data-n="65">        jobs[min_pass_index].pass += jobs[min_pass_index].stride;</span><span class="ln" data-n="66"> </span><span class="ln" data-n="67">        if (jobs[min_pass_index].remaining_time == 0)</span><span class="ln" data-n="68">        completed++;</span></pre><figcaption>The winner, and only the winner, adds its stride to its pass</figcaption></figure>
-<p>Line 51 only switches to a later job if its pass is <strong>strictly</strong> smaller, so a tie keeps the earlier one. That is the table convention from <strong>Building the table</strong> (ties → first listed). Line 65 is the third formula. The first rows of your output, identical in all five runs:</p>
+<p>Line 51 only switches to a later job if its pass is <strong>strictly</strong> smaller. So a tie keeps the earlier job. That is the table convention from <strong>Building the table</strong> (ties → first listed). Line 65 is the third formula. Here are the first rows of your output (the same in all five runs):</p>
 <pre><code>Pass A |Pass B |Pass C |Run
  0     | 0     | 0     |A
  100   | 0     | 0     |B
  100   | 200   | 0     |C
  100   | 200   | 1000  |A
  200   | 200   | 1000  |A</code></pre>
-<p>Row 5 is a 200–200 tie, and A wins because it is listed first. Notice also that C, with only 10 tickets, still runs in row 3, because its pass (0) is the lowest. The lowest pass always wins, whatever the tickets: that is why a job that joins later at pass 0 causes <strong>the new-job problem</strong> in the next section.</p>
+<p>Row 5 is a 200–200 tie. A wins because it is listed first. Also notice row 3: C has only 10 tickets, but it still runs, because its pass (0) is the lowest. The lowest pass always wins, whatever the tickets. That is why a job that joins later at pass 0 causes <strong>the new-job problem</strong> in the next section.</p>
 <div class="labnote">Exam angle: stride tables are deterministic, so they can be marked exactly. Compute strides with line 28, then repeat: lowest pass (ties → first listed), add its stride.</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">You change the tickets in stride.c to 50, 100 and 25 (still A, B, C, <code>NUMERATOR</code> 10000). Predict the stride line and the first 6 picks.</p><div class="a">Strides <strong>200, 100, 400</strong>. Passes (A, B, C) before each pick: (0,0,0) A → (200,0,0) B → (200,100,0) C → (200,100,400) B → (200,200,400) A (tie → first listed) → (400,200,400) B.<br>Picks: <strong>A B C B A B</strong>. (Checked by running a copy.)</div></div>
@@ -387,6 +419,8 @@ insert(queue, curr);          // return curr to queue</code></pre>
 
 <!-- ======================================================== -->
 <h2>Stride vs lottery</h2>
+<p class="crux"><strong>The problem:</strong> stride is exact, so why would anyone still use lottery?</p>
+<p>Because stride has to remember a pass for every job. Lottery remembers almost nothing. That matters most when a new job arrives.</p>
 <div class="table-wrap"><table>
 <thead><tr><th></th><th>Lottery</th><th>Stride</th></tr></thead>
 <tbody>
@@ -396,7 +430,8 @@ insert(queue, curr);          // return curr to queue</code></pre>
 <tr><td>Cost</td><td>Lightweight and fast: one random number plus a list walk</td><td>Pick the minimum, then update one pass</td></tr>
 </tbody></table></div>
 <div class="box trap"><span class="tag">The new-job problem</span>
-Say the others have passes around 1,000 and a new job joins with pass 0. It is now the lowest by a mile, so it wins every pick for a long time. That's what Dr. Bilal's slide means by "If new job enters with pass value 0, it will monopolize the CPU!" A sensible fix is to start it at the current <em>minimum</em> pass. Linux's CFS does exactly this with <code>min_vruntime</code> (next lesson).<span class="cite">Bilal slides, Ch 9A p.23</span></div>
+Say the others have passes around 1,000, and a new job joins with pass 0. It is now the lowest by a mile. So it wins every pick until it catches up. That's what Dr. Bilal's slide means by "If new job enters with pass value 0, it will monopolize the CPU!" A sensible fix is to start it at the current <em>minimum</em> pass. Linux's CFS does exactly this with <code>min_vruntime</code> (next lesson).<span class="cite">Bilal slides, Ch 9A p.23</span></div>
+<p class="inshort"><strong>In short:</strong> stride is deterministic and exact but keeps a pass per job. Lottery is probabilistic but keeps no per-job state, so a new job is easy: just add its tickets. In stride, a newcomer at pass 0 monopolizes the CPU.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Stride scheduling: why is a new job that starts with pass 0 a problem, and what is a sensible fix?</p><div class="a">Everyone else's pass is already large, so the newcomer has the lowest pass by far and <strong>monopolises the CPU</strong> until it catches up. Fix: start it at the <strong>current minimum pass</strong> (CFS does the same with min_vruntime).</div></div>

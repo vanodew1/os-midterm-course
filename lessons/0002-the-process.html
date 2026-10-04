@@ -34,6 +34,8 @@ A <strong>process is a running program</strong>. It is the OS's abstraction for 
 
 <!-- ======================================================== -->
 <h2>Program vs process</h2>
+<p class="crux"><strong>The problem:</strong> there are only a few physical CPUs. How can the OS give the illusion of a nearly endless supply of them?<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4</a></p>
+<p>First we need a name for "a program that is running". A program on disk is lifeless. It just sits there, a bunch of instructions waiting to spring into action. When the OS loads it and starts it, it becomes a <strong>process</strong>: a running program.</p>
 <div class="table-wrap"><table>
 <thead><tr><th></th><th>Program</th><th>Process</th></tr></thead>
 <tbody>
@@ -43,11 +45,17 @@ A <strong>process is a running program</strong>. It is the OS's abstraction for 
 </tbody></table></div>
 
 <div class="box analogy"><span class="tag">Analogy</span>
-A <strong>program</strong> is a recipe printed in a book. A <strong>process</strong> is someone actually cooking it: there's a half-filled pot (memory), a finger on step 7 (program counter), and the oven door open (open files). Two cooks can follow the same recipe at the same time; each one has their own pot.</div>
+A <strong>program</strong> is a recipe printed in a book. A <strong>process</strong> is someone actually cooking it. There's a half-filled pot (memory). There's a finger on step 7 (program counter). The oven door is open (open files). Two cooks can follow the same recipe at the same time. Each one has their own pot.</div>
 
 <h3>How can one CPU run hundreds of processes?</h3>
-<p>By <strong>time sharing</strong>: run one process for a little while, stop it, run another, and so on. Each process gets the illusion of its own CPU. The cost is that each one runs a bit slower because the CPU is shared.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.1</a> The flip side is <strong>space sharing</strong>: a resource is split up in <em>space</em> instead of time, e.g. memory or disk blocks are divided between processes.<span class="cite">Bilal slides, Ch 4</span></p>
-<p>To make this work, the OS needs a <strong>mechanism</strong> (the <em>context switch</em>, which stops one process and starts another) and a <strong>policy</strong> (the <em>scheduler</em>, which decides who goes next). That's the mechanism-vs-policy split from Lesson 1.</p>
+<p>By <strong>time sharing</strong>. The OS runs one process for a little while. Then it stops it and runs another, and so on. Each process gets the illusion of its own CPU. The cost: each one runs a bit slower, because the CPU is shared.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.1</a></p>
+<p>The other way to share is <strong>space sharing</strong>. Here a resource is split into pieces, and each process gets its own piece. Example: disk blocks or memory divided between processes.<span class="cite">Bilal slides, Ch 4</span> Quick test: CPU = take turns (time). Disk = split up (space).</p>
+<p>Time sharing needs two things, as in Lesson 1:</p>
+<ul>
+<li>A <strong>mechanism</strong>, the <em>how</em>: the <em>context switch</em> stops one process and starts another.</li>
+<li>A <strong>policy</strong>, the <em>which</em>: the <em>scheduler</em> decides who goes next.</li>
+</ul>
+<p class="inshort"><strong>In short:</strong> a program is a file on disk; a process is that program running. The OS shares one CPU among many processes by <strong>time sharing</strong>.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">What is the difference between a <em>program</em> and a <em>process</em>?</p>
@@ -67,7 +75,8 @@ A <strong>program</strong> is a recipe printed in a book. A <strong>process</str
 
 <!-- ======================================================== -->
 <h2>What's inside a process: machine state</h2>
-<p>To describe a process, list everything it can read or change while it runs. OSTEP calls this its <strong>machine state</strong>, and it has three parts:<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.1</a></p>
+<p class="crux"><strong>The problem:</strong> the OS will pause a process and resume it later. To do that, it must know exactly what makes up a running process.</p>
+<p>So take an inventory. List everything the process can read or change while it runs. OSTEP calls this its <strong>machine state</strong>. It has three parts:<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.1</a></p>
 
 <div class="table-wrap"><table>
 <thead><tr><th>Part</th><th>What it is</th></tr></thead>
@@ -79,9 +88,9 @@ A <strong>program</strong> is a recipe printed in a book. A <strong>process</str
 
 <p>Three registers matter most:</p>
 <ul>
-<li><strong>Program counter (PC)</strong>, also called the <em>instruction pointer</em>: holds the address of the <em>next instruction</em> to run.</li>
-<li><strong>Stack pointer (SP)</strong>: points to the top of the stack. The stack holds <strong>function parameters, local variables and return addresses</strong>.<span class="cite">Bilal slides, Ch 4</span></li>
-<li><strong>Frame pointer</strong>: also manages the stack (marks the current function's frame).<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.1</a></li>
+<li>The <strong>program counter (PC)</strong> holds the address of the <em>next instruction</em> to run. Its other name is the <em>instruction pointer</em>. Think of it as your finger on the recipe step.</li>
+<li>The <strong>stack pointer (SP)</strong> points to the top of the stack. The stack holds <strong>function parameters, local variables and return addresses</strong>.<span class="cite">Bilal slides, Ch 4</span></li>
+<li>The <strong>frame pointer</strong> also helps manage the stack. It marks the current function's frame.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.1</a></li>
 </ul>
 
 <div class="box exam"><span class="tag">This is how it's asked</span>
@@ -89,7 +98,8 @@ A <strong>program</strong> is a recipe printed in a book. A <strong>process</str
 <strong>PC</strong>: holds the address of the next instruction to fetch and execute.<br>
 <strong>SP</strong>: points to the top of the current stack, which tracks function calls: their local variables, parameters and return addresses.</div>
 
-<p>Why care? Because <strong>this machine state is exactly what the OS must save when it stops a process and restore when it resumes it</strong>. Save it perfectly and the process never notices it was paused.</p>
+<p>Why care? This machine state is exactly what the OS must <strong>save</strong> when it stops a process. It is also what the OS must <strong>restore</strong> when it resumes it. Save it perfectly, and the process never notices it was paused. It is like a bookmark: put it back on the same page and the reader carries on.</p>
+<p class="inshort"><strong>In short:</strong> machine state = <strong>memory</strong> + <strong>registers</strong> (PC, SP, frame pointer) + <strong>I/O information</strong> (open files). It is what the OS saves and restores.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">List the three parts of a process's <em>machine state</em>.</p>
@@ -127,7 +137,14 @@ A <strong>program</strong> is a recipe printed in a book. A <strong>process</str
 
 <!-- ======================================================== -->
 <h2>The process API</h2>
-<p>Every OS offers some way to manage processes. Bilal's restaurant analogy: the <strong>menu</strong> lists what you can ask for, the <strong>waiter</strong> carries the request (both are the API), and the <strong>kitchen</strong> (the OS) does the real work.<span class="cite">Bilal slides, Ch 4</span></p>
+<p class="crux"><strong>The problem:</strong> users and programs need a way to ask the OS to start, stop and check on processes.</p>
+<p>An <strong>API</strong> is the set of requests you are allowed to make. Bilal's restaurant analogy:<span class="cite">Bilal slides, Ch 4</span></p>
+<ul>
+<li>The <strong>menu</strong> lists what you can ask for. (API)</li>
+<li>The <strong>waiter</strong> carries your request and brings back the answer. (API)</li>
+<li>The <strong>kitchen</strong> does the real work. (the OS)</li>
+</ul>
+<p>Every OS offers these process requests in some form:</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Call</th><th>What it does</th></tr></thead>
 <tbody>
@@ -138,6 +155,7 @@ A <strong>program</strong> is a recipe printed in a book. A <strong>process</str
 <tr><td><em>Misc. control</em></td><td>e.g. suspend and resume a process (listed in OSTEP, not on Bilal's slide)</td></tr>
 </tbody></table></div>
 <p>The UNIX versions of these, <code>fork()</code>, <code>exec()</code> and <code>wait()</code>, are the whole of <a href="0003-fork-exec-wait.html">Lesson 3</a>.</p>
+<p class="inshort"><strong>In short:</strong> learn Bilal's four calls, <strong>Create, Destroy, Wait, Status</strong>, plus OSTEP's <strong>misc. control</strong> (suspend / resume).</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">List the process API calls that every OS offers (Bilal's four, plus OSTEP's extra one).</p>
@@ -164,7 +182,8 @@ A <strong>program</strong> is a recipe printed in a book. A <strong>process</str
 
 <!-- ======================================================== -->
 <h2>How the OS creates a process</h2>
-<p>Turning a program on disk into a running process takes five steps:<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.3</a></p>
+<p class="crux"><strong>The problem:</strong> a program is just bytes in a file on disk. What exactly does the OS do to turn it into a running process?</p>
+<p>It sets the stage, then hands over the CPU. That takes five steps:<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.3</a></p>
 
 <figure>
 <svg viewBox="0 0 600 300" role="img" aria-label="The program's code and static data are loaded from disk into the process's address space, which also gets a heap and a stack">
@@ -199,15 +218,16 @@ A <strong>program</strong> is a recipe printed in a book. A <strong>process</str
 </figure>
 
 <ol class="steps">
-<li><strong>Load code and static data</strong> (initialised global variables) from disk into the process's memory. Early OSes did this <em>eagerly</em> (all at once, before running). Modern OSes do it <strong>lazily</strong>: they load each piece only when the program actually needs it (this uses paging and swapping, which come later).</li>
-<li><strong>Allocate the stack</strong> and fill it with the arguments to <code>main()</code>: <code>argc</code> and the <code>argv</code> array. The stack holds local variables, parameters and return addresses.</li>
-<li><strong>Allocate a small heap</strong> for dynamic memory. It grows when the program calls <code>malloc()</code> and shrinks back when it calls <code>free()</code>.</li>
-<li><strong>Set up I/O</strong>: every UNIX process starts with three open file descriptors: <code>0</code> = standard input, <code>1</code> = standard output, <code>2</code> = standard error. That's how a program can read the keyboard and print to the terminal without opening anything.</li>
-<li><strong>Jump to <code>main()</code></strong>. The OS hands the CPU to the new process, and it starts running.</li>
+<li><strong>Load code and static data</strong> from disk into the process's memory. (Static data = initialised global variables.) Early OSes did this <strong>eagerly</strong>: all at once, before running. Modern OSes do it <strong>lazily</strong>: they load each piece only when the program actually needs it. (Lazy loading uses paging and swapping, which come later.)</li>
+<li><strong>Allocate the stack.</strong> Fill it with the arguments to <code>main()</code>: <code>argc</code> and the <code>argv</code> array. The stack holds local variables, parameters and return addresses.</li>
+<li><strong>Allocate a small heap</strong> for dynamic memory. It grows when the program calls <code>malloc()</code>. It shrinks back when the program calls <code>free()</code>.</li>
+<li><strong>Set up I/O.</strong> Every UNIX process starts with three files already open. Each has a number, called a <strong>file descriptor</strong>: <code>0</code> = standard input, <code>1</code> = standard output, <code>2</code> = standard error. That's why a program can read the keyboard and print to the terminal without opening anything.</li>
+<li><strong>Jump to <code>main()</code>.</strong> The OS hands the CPU to the new process, and it starts running.</li>
 </ol>
 
 <div class="box exam"><span class="tag">Bilal's question: "why the empty space?"</span>
-The free gap between heap and stack lets <strong>both grow</strong>: the heap grows as you <code>malloc()</code> more, the stack grows as you call deeper functions. Putting them at opposite ends means neither has to guess its size in advance.</div>
+The free gap between heap and stack lets <strong>both grow</strong>. The heap grows as you <code>malloc()</code> more. The stack grows as you call deeper functions. They sit at opposite ends and grow toward each other, so neither has to guess its size in advance.</div>
+<p class="inshort"><strong>In short:</strong> load code + static data (lazily), make the stack (<code>argc</code>/<code>argv</code>), make the heap (<code>malloc</code>), open fds 0/1/2, jump to <code>main()</code>.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">When the OS creates a process, which memory region gets <code>argc</code>/<code>argv</code>, and which region serves <code>malloc()</code>?</p>
@@ -238,7 +258,13 @@ The free gap between heap and stack lets <strong>both grow</strong>: the heap gr
 
 <!-- ======================================================== -->
 <h2>From your lab: the File Descriptor Monster</h2>
-<p>In Lab 3, Task 5, your <code>fd_monster.c</code> opened <code>log.txt</code> 50 times without closing it, printed each descriptor number, then closed them all. It shows step 4 above ("Set up I/O") and the <strong>I/O information</strong> part of machine state.</p>
+<p>In Lab 3, Task 5, your <code>fd_monster.c</code> did three things:</p>
+<ol class="steps">
+<li>Open <code>log.txt</code> 50 times, without closing it.</li>
+<li>Print each file descriptor number it got back.</li>
+<li>Close them all at the end.</li>
+</ol>
+<p>It shows step 4 above ("Set up I/O") and the <strong>I/O information</strong> part of machine state.</p>
 <figure class="labcode" data-src="Labs/Lab 3/fd_monster.c" data-lines="13-22" data-hl="15,21" data-caption="Each open() adds one more entry to this process's list of open files and returns its number."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%203/fd_monster.c">Labs/Lab 3/fd_monster.c</a><span class="lc-span">lines 13–22</span></div><pre><span class="ln" data-n="13">    for (int i = 0; i &lt; MAX_FILES; i++)</span><span class="ln" data-n="14">    {</span><span class="ln hl" data-n="15">        fds[i] = open(&quot;log.txt&quot;, O_RDONLY);</span><span class="ln" data-n="16">        if (fds[i] == -1)</span><span class="ln" data-n="17">        {</span><span class="ln" data-n="18">            perror(&quot;open failed&quot;);</span><span class="ln" data-n="19">            break;</span><span class="ln" data-n="20">        }</span><span class="ln hl" data-n="21">        printf(&quot;Monster opened file descriptor: %d\n&quot;, fds[i]);</span><span class="ln" data-n="22">    }</span></pre><figcaption>Each open() adds one more entry to this process's list of open files and returns its number.</figcaption></figure>
 <p>Your output, from the write-up:</p>
 <pre><code>$ ./monster
@@ -246,10 +272,23 @@ Monster opened file descriptor: 3
 Monster opened file descriptor: 4
    ... 5 to 51 ...
 Monster opened file descriptor: 52</code></pre>
-<p>Why does it start at <strong>3</strong>? Because the OS already opened <strong>0, 1 and 2</strong> (stdin, stdout, stderr) when it created the process, and <code>open()</code> always returns the <strong>lowest free</strong> number. 50 opens therefore get 3 to 52. With <code>MAX_FILES</code> raised past your limit (<code>ulimit -n</code> = 524288), the last success was descriptor <strong>524287</strong> (0 to 524287 is 524288 descriptors), and the next <code>open()</code> failed with "Too many open files".</p>
+<p>Why does it start at <strong>3</strong>? Two facts:</p>
+<ul>
+<li>The OS already opened <strong>0, 1 and 2</strong> (stdin, stdout, stderr) when it created the process.</li>
+<li><code>open()</code> always returns the <strong>lowest free</strong> number.</li>
+</ul>
+<p>So 50 opens get 3, 4, 5, … up to 52.</p>
+<p>What if you open more than you're allowed? Your limit (<code>ulimit -n</code>) was 524288. Numbers start at 0, so 524288 descriptors are 0 to 524287. When you raised <code>MAX_FILES</code> past the limit, the last success was descriptor <strong>524287</strong>. The next <code>open()</code> failed with "Too many open files".</p>
 <figure class="labcode" data-src="Labs/Lab 3/fd_monster.c" data-lines="27-33" data-hl="29,31" data-caption="Cleanup: close every slot that holds a valid descriptor (&gt;= 0)."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%203/fd_monster.c">Labs/Lab 3/fd_monster.c</a><span class="lc-span">lines 27–33</span></div><pre><span class="ln" data-n="27">    for (int i = 0; i &lt; MAX_FILES; i++)</span><span class="ln" data-n="28">    {</span><span class="ln hl" data-n="29">        if (fds[i] &gt;= 0)</span><span class="ln" data-n="30">        {</span><span class="ln hl" data-n="31">            close(fds[i]);</span><span class="ln" data-n="32">        }</span><span class="ln" data-n="33">    }</span></pre><figcaption>Cleanup: close every slot that holds a valid descriptor (&gt;= 0).</figcaption></figure>
-<div class="labnote warn">Bug when <code>open()</code> fails. The <code>break</code> leaves <code>fds[i]</code> = −1 for the failing slot, but the slots <em>after</em> it were never set, so they hold leftover stack garbage. The cleanup loop then calls <code>close()</code> on those garbage numbers. I ran a copy with a low limit (<code>ulimit -n 12</code>): the unset slots held values like 0 and 6, so the loop called <code>close(0)</code> and closed standard input. If a slot happens to hold 1, standard output closes and later <code>printf</code> lines vanish, which fits the missing last two lines you saw in Mission 3. Fix: set every slot to −1 before the open loop (<code>for (int i = 0; i &lt; MAX_FILES; i++) fds[i] = -1;</code>), or remember how many opened (<code>count = i</code>) and close only <code>fds[0]</code> to <code>fds[count-1]</code>.</div>
-<div class="labnote">Exam angle: "a process with only 0, 1, 2 open calls <code>open()</code> three times, then closes one. What does the next <code>open()</code> return?" Always: lowest free number.</div>
+<div class="labnote warn">Bug when <code>open()</code> fails. Here is what happens, step by step:
+<ol>
+<li>The failing slot gets <code>fds[i]</code> = −1, and the <code>break</code> stops the loop.</li>
+<li>The slots <em>after</em> it were never set. They hold leftover stack garbage.</li>
+<li>The cleanup loop calls <code>close()</code> on those garbage numbers.</li>
+</ol>
+I ran a copy with a low limit (<code>ulimit -n 12</code>). The unset slots held values like 0 and 6. So the loop called <code>close(0)</code> and closed standard input. If a slot happens to hold 1, standard output closes and later <code>printf</code> lines vanish. That fits the missing last two lines you saw in Mission 3.<br>
+Fix (either one): set every slot to −1 before the open loop (<code>for (int i = 0; i &lt; MAX_FILES; i++) fds[i] = -1;</code>). Or remember how many opened (<code>count = i</code>) and close only <code>fds[0]</code> to <code>fds[count-1]</code>.</div>
+<div class="labnote">Exam angle: "A process with only 0, 1, 2 open calls <code>open()</code> three times, then closes one. What does the next <code>open()</code> return?" The rule is always the same: the <strong>lowest free</strong> number. Example: the opens get 3, 4, 5; close 3; the next open gets 3, not 6.</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">The monster opens <code>log.txt</code> 4 times, then calls <code>close(4)</code>, then opens it once more. What does that last <code>open()</code> return?</p>
 <div class="a">The 4 opens return <strong>3, 4, 5, 6</strong>. After <code>close(4)</code>, the lowest free number is 4, so the last <code>open()</code> returns <strong>4</strong> (not 7).</div></div>
@@ -288,15 +327,16 @@ Monster opened file descriptor: 52</code></pre>
 
 <!-- ======================================================== -->
 <h2>Process states</h2>
-<p>At any moment a process is in one of three states:<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.4</a></p>
+<p class="crux"><strong>The problem:</strong> many processes exist, but only one can use the CPU at a time. The OS needs to track what each one is doing right now.</p>
+<p>Think of a doctor's clinic with one doctor. One patient is <em>with the doctor</em>. Others sit in the <em>waiting room</em>, ready to go in. One patient was sent off <em>for a blood test</em> and can't see the doctor until the result comes back. A process has the same three states:<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.4</a></p>
 <div class="table-wrap"><table>
 <tbody>
-<tr><td><strong>Running</strong></td><td>On a CPU right now, executing instructions.</td></tr>
-<tr><td><strong>Ready</strong></td><td>Could run right now, but the OS has chosen not to run it at this moment.</td></tr>
-<tr><td><strong>Blocked</strong></td><td>Has done something (usually starting an I/O request to a disk) that means it <em>can't</em> continue until some event happens. Meanwhile, another process can use the CPU.</td></tr>
+<tr><td><strong>Running</strong></td><td>On a CPU right now, executing instructions. (With the doctor.)</td></tr>
+<tr><td><strong>Ready</strong></td><td>Could run right now, but the OS has chosen not to run it at this moment. (Waiting room.)</td></tr>
+<tr><td><strong>Blocked</strong></td><td>Did something that means it <em>can't</em> continue until some event happens. Usually it started an I/O request to a disk. Meanwhile, another process can use the CPU. (Away at the blood test.)</td></tr>
 </tbody></table></div>
 
-<p>Press <strong>Step</strong> to watch two processes move around the state diagram. This is OSTEP's own example: Figure 4.3 has two CPU-only processes, and Figure 4.4 adds I/O.</p>
+<p>Press <strong>Step</strong> to watch two processes move around the state diagram. This is OSTEP's own example. Figure 4.3 has two CPU-only processes. Figure 4.4 adds I/O.</p>
 
 <div class="sim" id="stateSim">
   <div class="controls">
@@ -335,8 +375,8 @@ Monster opened file descriptor: 52</code></pre>
 
 <p>Notice three things in Figure 4.4:</p>
 <ul>
-<li>When P0 starts I/O it becomes <strong>Blocked</strong>, and the OS immediately runs P1 instead of leaving the CPU idle. That's the whole point of the Blocked state: it keeps the CPU busy.</li>
-<li>When the I/O finishes, P0 goes to <strong>Ready</strong>, <em>not</em> straight to Running. It waits until the scheduler picks it.</li>
+<li>At time 3, P0 starts I/O. From time 4 it is <strong>Blocked</strong>. The OS runs P1 at once, instead of leaving the CPU idle. That's the whole point of the Blocked state: it keeps the CPU busy.</li>
+<li>At time 7, the I/O finishes. P0 goes to <strong>Ready</strong>, <em>not</em> straight to Running. It waits until the scheduler picks it.</li>
 <li>The OS made a <strong>policy</strong> decision there: it let P1 finish before switching back to P0. Whether that's a good choice is a scheduling question (Lessons 5–9).<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.4</a></li>
 </ul>
 
@@ -350,7 +390,8 @@ Monster opened file descriptor: 52</code></pre>
 </tbody></table></div>
 
 <div class="box trap"><span class="tag">Trap</span>
-There is <strong>no arrow from Blocked to Running</strong> and <strong>no arrow from Ready to Blocked</strong>. A process must be running to start I/O, and after I/O it must queue up in Ready again.</div>
+There is <strong>no arrow from Blocked to Running</strong> and <strong>no arrow from Ready to Blocked</strong>. Why? A process must be running to start I/O. And after I/O it must queue up in Ready again. (The patient back from the blood test returns to the waiting room, not straight into the doctor's room.)</div>
+<p class="inshort"><strong>In short:</strong> Running ⇄ Ready (scheduled / descheduled), Running → Blocked (I/O starts), Blocked → Ready (I/O done). Nothing else.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Name the three basic process states and the event that causes Running → Blocked and Blocked → Ready.</p>
@@ -390,13 +431,14 @@ There is <strong>no arrow from Blocked to Running</strong> and <strong>no arrow 
 
 <!-- ======================================================== -->
 <h2>Real systems: two more states (and xv6's six)</h2>
-<p>Real OSes add two states at the ends of a process's life:<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.5</a></p>
+<p class="crux"><strong>The problem:</strong> the three states cover a process's middle life. But what about while it is being born, and just after it dies?</p>
+<p>Real OSes add one state at each end of a process's life:<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP §4.5</a></p>
 <ul>
 <li><strong>Initial</strong> (also called <em>embryo</em>): the process is still being created.</li>
-<li><strong>Final</strong> (the <strong>zombie</strong> state): the process has exited but hasn't been cleaned up yet. The OS keeps its exit status until the <em>parent</em> collects it with <code>wait()</code>. Lesson 3 picks this up.</li>
+<li><strong>Final</strong>, called the <strong>zombie</strong> state: the process has exited but hasn't been cleaned up yet. Why keep it? Its <em>parent</em> may want to know how it ended. So the OS keeps its exit status until the parent collects it with <code>wait()</code>. Lesson 3 picks this up.</li>
 </ul>
 
-<p>Bilal's slides list the six states from <strong>xv6</strong>, a small teaching re-implementation of classic Version 6 UNIX (hence the name).<span class="cite">Bilal slides, Ch 4</span> Each one maps onto the model above:</p>
+<p>Bilal's slides list six states from <strong>xv6</strong>. xv6 is a small teaching OS that re-implements classic Version 6 UNIX (hence the name).<span class="cite">Bilal slides, Ch 4</span> Each xv6 state maps onto the model above:</p>
 <div class="table-wrap"><table>
 <thead><tr><th>xv6 state</th><th>Meaning</th><th>3-state model</th></tr></thead>
 <tbody>
@@ -410,8 +452,9 @@ There is <strong>no arrow from Blocked to Running</strong> and <strong>no arrow 
 
 <div class="box exam"><span class="tag">This is how it's asked</span>
 "Unix-based systems have 6 states. Briefly explain UNUSED, EMBRYO, SLEEPING, RUNNABLE, ZOMBIE." Give one line each, like the table. Two warnings:<br>
-• For <strong>UNUSED</strong>, Bilal's slide text describes a "ghost process" lingering in the table, but <strong>his own quiz solution</strong> says <em>"the process table slot is free and not allocated to any process"</em>. Write the quiz version.<br>
-• The slide says "Unix-based systems"; strictly these are <strong>xv6</strong>'s names. Linux uses different letters (<code>R</code>, <code>S</code>, <code>Z</code>…). Answer with the six names given.</div>
+• <strong>UNUSED</strong>: Bilal's slide text talks about a "ghost process" lingering in the table. But <strong>his own quiz solution</strong> says <em>"the process table slot is free and not allocated to any process"</em>. Write the quiz version.<br>
+• The slide says "Unix-based systems". Strictly, these are <strong>xv6</strong>'s names. Linux uses different letters (<code>R</code>, <code>S</code>, <code>Z</code>…). Answer with the six names given.</div>
+<p class="inshort"><strong>In short:</strong> SLEEPING = Blocked, RUNNABLE = Ready, EMBRYO = Initial, ZOMBIE = exited but not yet reaped by <code>wait()</code>, UNUSED = free table slot.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Map the xv6 states <code>SLEEPING</code>, <code>RUNNABLE</code> and <code>EMBRYO</code> onto the basic process-state model.</p>
@@ -439,8 +482,17 @@ There is <strong>no arrow from Blocked to Running</strong> and <strong>no arrow 
 
 <!-- ======================================================== -->
 <h2>Data structures: the process list and the PCB</h2>
-<p>The OS keeps a <strong>process list</strong> (or task list) with one entry for every process. The scheduler reads it to choose who runs next, and the OS uses it to find a process again, for example to check its status.<span class="cite">Zafar slides, Lecture 2</span></p>
-<p>Each entry is a <strong>Process Control Block (PCB)</strong>, also called a <strong>process descriptor</strong>: "a fancy way of talking about a C structure that contains information about each process".<span class="cite">Bilal slides, Ch 4</span> It holds the machine state from earlier (saved registers, memory info, open files) plus bookkeeping (PID, state, parent).</p>
+<p class="crux"><strong>The problem:</strong> the OS is a program too. Where does it write down everything it knows about each process?</p>
+<p>The OS keeps a <strong>process list</strong> (or task list). It has one entry for every process. Like a clinic's patient register, it is used in two ways:<span class="cite">Zafar slides, Lecture 2</span></p>
+<ul>
+<li>The scheduler reads it to choose who runs next.</li>
+<li>The OS uses it to find a process again, for example to check its status.</li>
+</ul>
+<p>Each entry is a <strong>Process Control Block (PCB)</strong>, also called a <strong>process descriptor</strong>. In Bilal's words, it is "a fancy way of talking about a C structure that contains information about each process".<span class="cite">Bilal slides, Ch 4</span> It holds two kinds of thing:</p>
+<ul>
+<li>the machine state from earlier: saved registers, memory info, open files;</li>
+<li>bookkeeping: PID, state, parent.</li>
+</ul>
 
 <p>Here is xv6's real one, exactly as on Bilal's slide (OSTEP Figure 4.5):<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf">OSTEP Fig 4.5</a></p>
 <pre><code>struct proc {
@@ -493,7 +545,8 @@ enum proc_state { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };</code><
 };</code></pre>
 <p style="margin-bottom:0">Memory can be written as <code>base</code> + <code>size</code> (or <code>base</code> + <code>bound</code>, which you'll meet in Lesson 12).</p></div>
 
-<p>When the OS stops a process, it saves the registers into that process's <code>context</code>. To resume it, the OS loads them back into the CPU. That save-and-restore is the <strong>context switch</strong>, which Lesson 4 covers in detail.</p>
+<p>When the OS stops a process, it saves the registers into that process's <code>context</code>. To resume it, the OS loads them back into the CPU. That save-and-restore is the <strong>context switch</strong>. Lesson 4 covers it in detail.</p>
+<p class="inshort"><strong>In short:</strong> one <strong>PCB</strong> per process, kept in the process list. Remember five groups: identity, state, registers, memory, files.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">What is a PCB, and what groups of information does it hold?</p>
@@ -513,9 +566,15 @@ enum proc_state { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };</code><
 
 <!-- ======================================================== -->
 <h2>From your lab: a process table in C</h2>
-<p>In Lab 6 your <code>process_manager.c</code> is a tiny OS shell: <code>create</code>, <code>terminate</code>, <code>list</code> and <code>map</code> processes in a fixed table of 5 slots. It is the process list and PCB from the section above, written by you.</p>
+<p>In Lab 6 your <code>process_manager.c</code> is a tiny OS shell. It can <code>create</code>, <code>terminate</code>, <code>list</code> and <code>map</code> processes. They live in a fixed table of 5 slots. It is the process list and PCB from the section above, written by you.</p>
 <figure class="labcode" data-src="Labs/Lab 6/process_manager.c" data-lines="8-22" data-hl="12-15,19" data-caption="struct process is a mini PCB; manager.processes[] is the process list (a fixed table of MAX_PROCESSES slots)."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%206/process_manager.c">Labs/Lab 6/process_manager.c</a><span class="lc-span">lines 8–22</span></div><pre><span class="ln" data-n="8">struct segment {</span><span class="ln" data-n="9">    int base, limit;</span><span class="ln" data-n="10">};</span><span class="ln" data-n="11"> </span><span class="ln hl" data-n="12">struct process {</span><span class="ln hl" data-n="13">    int pid, is_active;</span><span class="ln hl" data-n="14">    struct segment code, data, heap, stack;</span><span class="ln hl" data-n="15">};</span><span class="ln" data-n="16"> </span><span class="ln" data-n="17">//part b memory manager</span><span class="ln" data-n="18">struct {</span><span class="ln hl" data-n="19">    struct process processes[MAX_PROCESSES];</span><span class="ln" data-n="20">    char memory[MEMORY_SIZE];</span><span class="ln" data-n="21">    int next_address; // Tracks the next available address</span><span class="ln" data-n="22">} manager;</span></pre><figcaption>struct process is a mini PCB; manager.processes[] is the process list (a fixed table of MAX_PROCESSES slots).</figcaption></figure>
-<p>Map it onto the PCB groups: <strong>who am I</strong> = <code>pid</code>; <strong>memory</strong> = the <code>code</code>, <code>heap</code> and <code>stack</code> segments (base + limit); <strong>state</strong> = only <code>is_active</code>. An entry with <code>is_active == 0</code> is exactly xv6's <code>UNUSED</code>: a free slot with no process in it.</p>
+<p>Map it onto the PCB groups:</p>
+<ul>
+<li><strong>Who am I</strong> = <code>pid</code>.</li>
+<li><strong>Memory</strong> = the <code>code</code>, <code>heap</code> and <code>stack</code> segments (base + limit).</li>
+<li><strong>State</strong> = only <code>is_active</code>.</li>
+</ul>
+<p>An entry with <code>is_active == 0</code> is exactly xv6's <code>UNUSED</code>: a free slot with no process in it.</p>
 <figure class="labcode" data-src="Labs/Lab 6/process_manager.c" data-lines="51-58" data-hl="54" data-caption="create: take the FIRST free slot (is_active == 0). A full table means no new process."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%206/process_manager.c">Labs/Lab 6/process_manager.c</a><span class="lc-span">lines 51–58</span></div><pre><span class="ln" data-n="51">    // Find a free slot in the process table</span><span class="ln" data-n="52">    int slot = -1;</span><span class="ln" data-n="53">    for (int i = 0; i &lt; MAX_PROCESSES; i++)</span><span class="ln hl" data-n="54">        if (!manager.processes[i].is_active) { slot = i; break; }</span><span class="ln" data-n="55">    if (slot == -1) {</span><span class="ln" data-n="56">        printf(&quot;Error: process table full (max %d)\n&quot;, MAX_PROCESSES);</span><span class="ln" data-n="57">        return -1;</span><span class="ln" data-n="58">    }</span></pre><figcaption>create: take the FIRST free slot (is_active == 0). A full table means no new process.</figcaption></figure>
 <figure class="labcode" data-src="Labs/Lab 6/process_manager.c" data-lines="83-92" data-hl="89" data-caption="terminate: mark the slot free again. Nothing else is cleaned up."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%206/process_manager.c">Labs/Lab 6/process_manager.c</a><span class="lc-span">lines 83–92</span></div><pre><span class="ln" data-n="83">int terminate_process(int pid) {</span><span class="ln" data-n="84">    int i = find_process(pid);</span><span class="ln" data-n="85">    if (i == -1) {</span><span class="ln" data-n="86">        printf(&quot;Error: process %d not found\n&quot;, pid);</span><span class="ln" data-n="87">        return -1;</span><span class="ln" data-n="88">    }</span><span class="ln hl" data-n="89">    manager.processes[i].is_active = 0;</span><span class="ln" data-n="90">    printf(&quot;Process %d terminated\n&quot;, pid);</span><span class="ln" data-n="91">    return 0;</span><span class="ln" data-n="92">}</span></pre><figcaption>terminate: mark the slot free again. Nothing else is cleaned up.</figcaption></figure>
 <p>I compiled your file and ran it (output trimmed):</p>
@@ -531,8 +590,8 @@ Process 30:
 Process 20:
   code: [350-649] size=300
   ...</code></pre>
-<p>PID 30 is listed <em>before</em> PID 20 because it took slot 0, the slot PID 10 left free.</p>
-<div class="labnote warn">Simplification to know: <code>terminate</code> frees the <strong>slot</strong> but not the <strong>memory</strong>. <code>next_address</code> only ever grows (line 77), so PID 30 got addresses 850 onward and bytes 0–349 (PID 10's old space) are never used again. That's fine for the lab, but a real OS gives the memory back too. Lessons 12–13 come back to placing processes in memory.</div>
+<p>Why is PID 30 listed <em>before</em> PID 20? PID 10 was in slot 0. Terminating it freed slot 0. PID 30 took the first free slot, which was slot 0.</p>
+<div class="labnote warn">Simplification to know: <code>terminate</code> frees the <strong>slot</strong> but not the <strong>memory</strong>. <code>next_address</code> only ever grows (line 77). So PID 30 got addresses 850 onward. Bytes 0–349 (PID 10's old space) are never used again. That's fine for the lab, but a real OS gives the memory back too. Lessons 12–13 come back to placing processes in memory.</div>
 <div class="labnote">Exam angle: "write the code for a basic process structure". Your <code>struct process</code> covers identity and memory only. For full marks add the missing groups: a <strong>state</strong> (RUNNING/READY/BLOCKED…), saved <strong>registers</strong> (PC, SP), the <strong>parent</strong>, and <strong>open files</strong>.</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">The table is empty. You type <code>create 1 1 1 1</code>, <code>create 2 1 1 1</code>, <code>create 3 1 1 1</code>, <code>terminate 2</code>, <code>create 4 1 1 1</code>, then <code>list</code>. Which slot does PID 4 get, and in what order does <code>list</code> print the PIDs?</p>
@@ -579,7 +638,9 @@ Process 20:
 
 <!-- ======================================================== -->
 <h2>Process vs thread (link back to Lesson 1)</h2>
-<p>A process can contain several <strong>threads</strong>. Each thread is a separate stream of execution, so each one needs its own PC, registers and stack. But all the threads of one process share that process's address space and open files. Put another way: the per-thread parts are <code>context</code> and a stack, and everything else in <code>struct proc</code> is shared.</p>
+<p class="crux"><strong>The problem:</strong> a process can do several things at once using threads. Which parts of the process does each thread get for itself, and which parts are shared?</p>
+<p>A process can contain several <strong>threads</strong>. Each thread is a separate stream of execution. It is at its own point in the code, inside its own function calls. So each thread needs its own PC, registers and stack. But all the threads of one process share that process's address space and open files.</p>
+<p>In <code>struct proc</code> terms: each thread gets its own <code>context</code> and stack. Everything else is shared.</p>
 <div class="table-wrap"><table>
 <thead><tr><th></th><th>Two processes</th><th>Two threads in one process</th></tr></thead>
 <tbody>
@@ -587,6 +648,7 @@ Process 20:
 <tr><td>Open files</td><td>Separate</td><td>Shared</td></tr>
 <tr><td>PC, registers, stack</td><td>Separate</td><td>Separate</td></tr>
 </tbody></table></div>
+<p class="inshort"><strong>In short:</strong> threads share memory and files; each thread has its own PC, registers and stack. Example: 4 threads = 4 stacks, 1 address space.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">A process runs 3 threads. How many stacks, sets of registers, and address spaces does it have?</p>

@@ -40,13 +40,18 @@ The operating system sits between programs and hardware. It takes a physical res
 <!-- ======================================================== -->
 <h2>Piece 1 · Virtualization</h2>
 
+<p class="crux"><strong>The problem:</strong> there is one CPU and one memory, but many programs each want them all to themselves. How do we share them so every program feels it owns the machine?</p>
+
+<div class="box analogy"><span class="tag">The book's analogy: the peach</span>
+There is one real peach and many people who want to eat it. You give each person a <strong>virtual peach</strong>. Most of the time each eater is napping or busy. So you quietly take the peach away and hand it to someone else for a while. Each eater thinks they have their own peach. In reality, they share one.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/dialogue-virtualization.pdf">OSTEP Ch 3</a> The CPU and memory are the peach. The programs are the eaters.</div>
+
 <h3>Virtualizing the CPU</h3>
-<p>Your laptop may have 8 cores but 300 running programs. The OS creates the <em>illusion</em> that each program has its own CPU. It runs one program for a few milliseconds, switches to the next, and so on, faster than you can notice. This is called <strong>time sharing</strong>.</p>
+<p>Your laptop may have 8 cores but 300 running programs. So programs must share. The OS runs one program for a few milliseconds. Then it switches to the next one, and so on. It switches so fast you never notice. Each program seems to have its own CPU. This trick is called <strong>time sharing</strong>: programs take turns on the same CPU.</p>
 
 <div data-gantt='{"lanes":[{"label":"CPU","segs":[["A",0,1],["B",1,2],["C",2,3],["D",3,4],["A",4,5],["B",5,6],["C",6,7],["D",7,8],["A",8,9],["B",9,10],["C",10,11],["D",11,12]]}],"end":12}'></div>
 <p class="small">Four programs, one CPU. Each one thinks it is running all the time, but really they take turns. Hover a block to see when it ran.</p>
 
-<p>For this to work, the OS needs two kinds of thing. Keep the difference in mind; it comes back in every chapter:</p>
+<p>To make time sharing work, the OS needs two different things. One is the <em>tool</em> for switching. The other is the <em>rule</em> for choosing who goes next. A <strong>mechanism</strong> is the low-level "how". A <strong>policy</strong> is the decision "which". This split comes back in every chapter:</p>
 <div class="table-wrap"><table>
 <thead><tr><th></th><th>Answers the question…</th><th>Example</th></tr></thead>
 <tbody>
@@ -56,9 +61,10 @@ The operating system sits between programs and hardware. It takes a physical res
 <p>Lesson 4 covers the mechanism, and Lessons 5–9 cover the policies.</p>
 
 <h3>Virtualizing memory</h3>
-<p>Physical memory is just one big array of bytes that every program shares. The OS gives each process its own private <strong>address space</strong>, a pretend memory that starts at 0 and belongs only to that process. Hardware and the OS translate every <em>virtual</em> address into a real <em>physical</em> one.</p>
+<p>Physical memory is just one big array of bytes. Every program has to share it. But no program should see or break another's data.</p>
+<p>So the OS gives each process its own <strong>address space</strong>: a private, pretend memory that starts at 0 and belongs only to that process. The addresses a program uses are <em>virtual</em>. On every memory access, the OS and hardware translate the virtual address into a real <em>physical</em> one.</p>
 
-<p>The classic demo is <code>mem.c</code>, which allocates one integer and keeps incrementing it.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/intro.pdf">OSTEP Fig 2.3</a> Run two copies at once:</p>
+<p>The book's demo is <code>mem.c</code>. It allocates one integer and adds 1 to it every second.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/intro.pdf">OSTEP Fig 2.3</a> Run two copies at once:</p>
 <pre><code>$ ./mem &amp; ./mem &amp;
 (2134) addr 0x200000: 1
 (2135) addr 0x200000: 1
@@ -89,7 +95,9 @@ The operating system sits between programs and hardware. It takes a physical res
 </figure>
 
 <div class="box analogy"><span class="tag">Analogy</span>
-Two people both live at "Flat 2". One is in Building A and one is in Building B. The flat number is the <em>virtual address</em>; the building is the hidden part the OS fills in. Lessons 10–13 show exactly how that translation works.</div>
+Two people both live at "Flat 2". One is in Building A and one is in Building B. The flat number is the <em>virtual address</em>. The building is the hidden part the OS fills in. Lessons 10–13 show exactly how that translation works.</div>
+
+<p class="inshort"><strong>In short:</strong> the OS virtualizes the CPU by <strong>time sharing</strong> (taking turns fast) and virtualizes memory by giving each process its own <strong>address space</strong> (same virtual address, different physical memory).</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">What is <em>time sharing</em>, and which resource does it virtualize?</p>
@@ -129,7 +137,12 @@ Two people both live at "Flat 2". One is in Building A and one is in Building B.
 
 <!-- ======================================================== -->
 <h2>From your lab: two copies of mem.c</h2>
-<p>In Lab 5 you wrote your own <code>mem.c</code>: it takes a starting number, puts it in one <code>malloc</code>'d integer, and adds 1 to it every second. It is the demo from "Virtualizing memory" above, in your code.</p>
+<p>In Lab 5 you wrote your own <code>mem.c</code>. It is the same demo as above, in your code. It works in three steps:</p>
+<ol class="steps">
+<li>Take a starting number from the command line.</li>
+<li>Store it in one integer made with <code>malloc</code>.</li>
+<li>Add 1 to that integer every second, and print it.</li>
+</ol>
 <figure class="labcode" data-src="Labs/Lab 5/mem.c" data-lines="12-24" data-hl="13,16,19,22" data-caption="malloc gives p a heap address (line 13). Line 16 prints that address once, then the loop adds 1 to *p every second."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/mem.c">Labs/Lab 5/mem.c</a><span class="lc-span">lines 12–24</span></div><pre><span class="ln" data-n="12">    int *p;</span><span class="ln hl" data-n="13">    p = malloc(sizeof(int));</span><span class="ln" data-n="14">    assert(p != NULL);</span><span class="ln" data-n="15"> </span><span class="ln hl" data-n="16">    printf(&quot;(%d) addr pointed to by p: %p\n&quot;, (int)</span><span class="ln" data-n="17">        getpid(), (void *)p);</span><span class="ln" data-n="18">    </span><span class="ln hl" data-n="19">    *p = atoi(argv[1]); // assign value to addr stored in p</span><span class="ln" data-n="20">    while (1){</span><span class="ln" data-n="21">        sleep(1);</span><span class="ln hl" data-n="22">        *p = *p + 1;</span><span class="ln" data-n="23">        printf(&quot;(%d) value of p: %d\n&quot;, getpid(), *p);</span><span class="ln" data-n="24">    }</span></pre><figcaption>malloc gives p a heap address (line 13). Line 16 prints that address once, then the loop adds 1 to *p every second.</figcaption></figure>
 <p>I compiled your file and ran two copies at the same time (on one run; PIDs and addresses change every run):</p>
 <div class="two-col" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:1rem">
@@ -149,15 +162,16 @@ $ setarch -R ./mem 5 &amp; setarch -R ./mem 7 &amp;
 (47704) value of p: 7
 (47706) value of p: 9</code></pre>
 </div>
-<p>Read the right-hand run. Both processes print the <strong>same</strong> address, <code>0x555555559010</code>, yet one counts 6, 7… and the other 8, 9…. If that address were a real RAM location, line 22 in each process would be adding 1 to the <em>same</em> integer and the counts would mix. They don't, because each process has its own <strong>address space</strong>: the address is <em>virtual</em>, and the OS and hardware translate it to different physical memory for each process.</p>
-<p>The left-hand run shows different addresses only because Linux randomizes where the heap starts on every run (ASLR). OSTEP's output (<code>0x200000</code> twice) was made with randomization turned off, like the right-hand run.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/intro.pdf">OSTEP §2.2</a></p>
+<p>Look at the right-hand run first. Both processes print the <strong>same</strong> address, <code>0x555555559010</code>. Yet one counts 6, 7… and the other counts 8, 9….</p>
+<p>Suppose that address were one real spot in RAM. Then line 22 in both processes would add 1 to the <em>same</em> integer, and the counts would mix. They don't mix. Why? The address is <em>virtual</em>. Each process has its own <strong>address space</strong>, so the OS and hardware send that address to different physical memory for each one.</p>
+<p>Why does the left-hand run show different addresses? Linux picks a random start for the heap on every run. This is called ASLR (address space layout randomization). OSTEP's output (<code>0x200000</code> twice) was made with it turned off, like the right-hand run.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/intro.pdf">OSTEP §2.2</a></p>
 <figure class="labcode" data-src="Labs/Lab 5/mem.c" data-lines="26-30" data-hl="28-30" data-caption="Your own answers in the file. Answer (c) is the sentence the exam wants."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/mem.c">Labs/Lab 5/mem.c</a><span class="lc-span">lines 26–30</span></div><pre><span class="ln" data-n="26">    //a yea every process gets its own unique pid</span><span class="ln" data-n="27">    //b if aslr on so itd be different otherwise the same</span><span class="ln hl" data-n="28">    //c even tho virtual address looks identical, each process has its own</span><span class="ln hl" data-n="29">    // private page table mapping so values stored there are completely </span><span class="ln hl" data-n="30">    // seperate</span></pre><figcaption>Your own answers in the file. Answer (c) is the sentence the exam wants.</figcaption></figure>
-<div class="labnote">Exam angle: "two processes print the same address but different values: why?" Answer with your comment (c): the address is virtual, each process has its own address space, and translation sends it to different physical memory.</div>
+<div class="labnote">Exam angle: "Two processes print the same address but different values. Why?" Answer with your comment (c), in three parts: (1) the address is virtual; (2) each process has its own address space; (3) translation sends it to different physical memory.</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">With randomization off, you run <code>./mem 10</code> and <code>./mem 50</code> together. What do the first three "value" lines of each process show, and do their addresses match?</p>
 <div class="a">The first prints <strong>11, 12, 13</strong>; the second prints <strong>51, 52, 53</strong>. The addresses <strong>match</strong>, but each process changes only its own integer, because the same virtual address is translated to different physical memory.</div></div>
 <div class="rc"><p class="q">Which line of <code>mem.c</code> would show the problem if the two processes really shared one physical integer, and what would you see?</p>
-<div class="a"><strong>Line 22</strong>, <code>*p = *p + 1;</code>. Both processes would be adding 1 to the <strong>same</strong> integer, so each one's printed value would also include the other's increments: the two counts would mix instead of each climbing by 1 from its own start.</div></div>
+<div class="a"><strong>Line 22</strong>, <code>*p = *p + 1;</code>. Both processes would add 1 to the <strong>same</strong> integer. So each printed value would include the other's increments too. The two counts would mix, instead of each climbing by 1 from its own start.</div></div>
 <div class="rc"><p class="q">What happens if you run your <code>mem.c</code> as just <code>./mem</code>, with no number? Name the lines.</p>
 <div class="a"><code>argc</code> is <strong>1</strong>, not 2, so the check on <strong>lines 7–10</strong> prints <code>usage: mem &lt;value&gt;</code> to standard error and calls <code>exit(1)</code>. Nothing is allocated.</div></div>
 <div class="close">
@@ -191,7 +205,8 @@ $ setarch -R ./mem 5 &amp; setarch -R ./mem 7 &amp;
 
 <!-- ======================================================== -->
 <h2>Piece 2 · Concurrency</h2>
-<p>A <strong>thread</strong> is one stream of execution inside a program. One process can have several threads.</p>
+<p class="crux"><strong>The problem:</strong> when several things run at once and share the same data, how do we keep the result correct?</p>
+<p>A <strong>thread</strong> is one stream of execution inside a program. Think of it as a function that runs at the same time as other functions, in the same memory.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/intro.pdf">OSTEP §2.3</a> One process can have several threads. Here is what they share and what they don't:</p>
 
 <div class="table-wrap"><table>
 <thead><tr><th></th><th>Two <em>processes</em></th><th>Two <em>threads</em> in one process</th></tr></thead>
@@ -201,15 +216,15 @@ $ setarch -R ./mem 5 &amp; setarch -R ./mem 7 &amp;
 <tr><td>Stack, registers, PC</td><td>Separate</td><td>Separate (each thread has its own)</td></tr>
 </tbody></table></div>
 
-<p>Sharing memory is fast, but it's also dangerous. Here's the program from the slides: two threads each run <code>counter++</code> ten million times.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/intro.pdf">OSTEP Fig 2.5</a><span class="cite">Zafar Lecture 1, slides 13–14</span> You'd expect 20,000,000, but you get a different wrong number almost every run.</p>
+<p>Sharing memory is fast. It is also dangerous. Here is the program from the slides. Two threads share one global <code>counter</code>. Each thread runs <code>counter++</code> ten million times.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/intro.pdf">OSTEP Fig 2.5</a><span class="cite">Zafar Lecture 1, slides 13–14</span> You'd expect 20,000,000. Instead you get a different wrong number almost every run.</p>
 
-<p><strong>Why?</strong> <code>counter++</code> looks like one step, but the CPU does it in three:</p>
+<p><strong>Why?</strong> <code>counter++</code> looks like one step. But the CPU does it in three:</p>
 <ol class="steps">
 <li><strong>LOAD</strong>: copy <code>counter</code> from memory into this thread's private register</li>
 <li><strong>ADD</strong>: add 1 to the register</li>
 <li><strong>STORE</strong>: write the register back to <code>counter</code></li>
 </ol>
-<p>If the OS switches threads <em>between</em> those steps, both threads can read the same old value, and one increment gets lost. That's a <strong>race condition</strong>: the result depends on the timing.</p>
+<p>The OS can switch threads at any moment, even <em>between</em> those steps. Then both threads can LOAD the same old value. Both add 1 to it. Both store the same answer. One increment is lost. This is a <strong>race condition</strong>: the result depends on the timing of the switches. Here is one bad timing, with <code>counter</code> starting at 10:</p>
 
 <div class="table-wrap"><table>
 <thead><tr><th>#</th><th>Step</th><th class="num">A's register</th><th class="num">B's register</th><th class="num">counter (memory)</th></tr></thead>
@@ -223,8 +238,10 @@ $ setarch -R ./mem 5 &amp; setarch -R ./mem 7 &amp;
 <tr><td>6</td><td>A: STORE</td><td class="num">11</td><td class="num">11</td><td class="num"><strong>11</strong> (should be 12)</td></tr>
 </tbody></table></div>
 <div class="box exam"><span class="tag">How to fill these tables</span>
-Each thread has its <strong>own</strong> register. <code>counter</code> only changes on a STORE. On every LOAD, copy whatever value is in memory <em>right now</em>. That's the whole trick.</div>
+Three rules. (1) Each thread has its <strong>own</strong> register. (2) <code>counter</code> in memory only changes on a STORE. (3) On every LOAD, copy whatever value is in memory <em>right now</em>. That's the whole trick.</div>
 <p class="small">The fix (locks) is in a later part of the course and isn't on this midterm.</p>
+
+<p class="inshort"><strong>In short:</strong> threads share memory, and <code>counter++</code> is really LOAD, ADD, STORE. A switch between those steps can lose an update. That is a <strong>race condition</strong>.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">List the three machine steps hidden inside <code>counter++</code>, and say what a race condition is.</p>
@@ -280,7 +297,14 @@ Each thread has its <strong>own</strong> register. <code>counter</code> only cha
 
 <!-- ======================================================== -->
 <h2>Piece 3 · Persistence</h2>
-<p>RAM is <strong>volatile</strong>: it forgets everything when the power goes. Disks and SSDs are <strong>persistent</strong>. The part of the OS that manages persistent data is the <strong>file system</strong>. It organises files and directories, tracks where each file's data lives, and stays consistent even if the machine crashes mid-write. That's enough for now.</p>
+<p class="crux"><strong>The problem:</strong> how do we keep data safe when the power goes off or the machine crashes?</p>
+<p>RAM is <strong>volatile</strong>: it forgets everything when the power goes. Disks and SSDs are <strong>persistent</strong>: they keep data with the power off. The part of the OS that manages persistent data is the <strong>file system</strong>. It does three jobs:</p>
+<ul>
+<li>It organises files and directories.</li>
+<li>It tracks where each file's data lives on the disk.</li>
+<li>It stays consistent even if the machine crashes mid-write.</li>
+</ul>
+<p class="inshort"><strong>In short:</strong> RAM is volatile, disks are persistent, and the <strong>file system</strong> manages persistent data. That's all you need for now.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">RAM is <em>volatile</em>, a disk is <em>persistent</em>. What do those words mean, and which part of the OS manages persistent data?</p>
@@ -298,6 +322,7 @@ Each thread has its <strong>own</strong> register. <code>counter</code> only cha
 
 <!-- ======================================================== -->
 <h2>What a good OS aims for</h2>
+<p class="crux"><strong>The problem:</strong> how do we judge whether an OS is good? We need a list of goals.</p>
 <div class="table-wrap"><table>
 <tbody>
 <tr><td><strong>Abstraction</strong></td><td>Make hardware easy to use: processes, address spaces and files instead of raw registers and disk blocks</td></tr>
@@ -306,6 +331,7 @@ Each thread has its <strong>own</strong> register. <code>counter</code> only cha
 <tr><td><strong>Reliability</strong></td><td>The OS must not crash, because if it fails, everything fails</td></tr>
 <tr><td><strong>Also</strong></td><td>Energy efficiency, security, mobility</td></tr>
 </tbody></table></div>
+<p class="inshort"><strong>In short:</strong> learn the four main goals: abstraction, performance, protection / isolation, reliability. A program harming another program is a <strong>protection</strong> failure.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">List four design goals of a good operating system.</p>

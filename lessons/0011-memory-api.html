@@ -20,7 +20,8 @@
 
 <p class="kicker">Lesson 11 · Memory virtualization</p>
 <h1>malloc, free, and how they go wrong</h1>
-<p class="lede">The stack cleans up after itself. The heap is yours to manage, and C will happily let you get it wrong. This lesson is the API, the seven classic bugs, and why some of them "seem to work".</p>
+<p class="lede">The stack cleans up after itself. The heap is yours to manage, and C will happily let you get it wrong. This lesson covers the API, the seven classic bugs, and why some of them "seem to work".</p>
+<p class="crux"><strong>The problem:</strong> OSTEP's crux for this chapter: "How to allocate and manage memory? What interfaces are commonly used? What mistakes should be avoided?"<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-api.pdf">OSTEP §14</a></p>
 
 <div class="box key"><span class="tag">The one-sentence version</span>
 <code>malloc(size)</code> hands you <code>size</code> bytes on the heap and returns a pointer (or <code>NULL</code>); <code>free(ptr)</code> gives them back. You must allocate enough, initialize it, free it exactly once, and never touch it after freeing. The compiler checks <em>none</em> of this; these are <strong>run-time</strong> bugs.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-api.pdf">OSTEP §14</a></div>
@@ -32,6 +33,12 @@
 
 <!-- ======================================================== -->
 <h2>Two kinds of memory</h2>
+<p class="crux"><strong>The problem:</strong> local variables vanish when a function returns. Where do you put data that must live longer?</p>
+<p>A C program uses two kinds of memory:</p>
+<ul>
+<li><strong>Stack memory</strong> is handled for you by the compiler. It is also called <strong>automatic memory</strong>. Space appears when a function is called and disappears when it returns.</li>
+<li><strong>Heap memory</strong> is handled by you, by hand. You ask for it with <code>malloc()</code> and give it back with <code>free()</code>. OSTEP calls this "a heavy responsibility" and "the cause of many bugs".</li>
+</ul>
 <div class="table-wrap"><table>
 <thead><tr><th></th><th>Stack memory</th><th>Heap memory</th></tr></thead>
 <tbody>
@@ -45,7 +52,16 @@
     int *p = malloc(sizeof(int));       // p is on the stack; *p is on the heap
     ...
 }                                       // x and p vanish; the heap int does NOT</code></pre>
-<p>That last line is the root of most heap bugs: the pointer variable dies with the function, but the heap block lives on until someone calls <code>free()</code>.</p>
+<p>Notice that the <code>int *p = malloc(...)</code> line uses <strong>both</strong> kinds of memory at once. This is the same p / &amp;p / *p picture as <a href="0010-address-spaces.html">Lesson 10</a>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Write</th><th>What it is</th><th>Where it lives</th><th>After <code>func</code> returns</th></tr></thead>
+<tbody>
+<tr><td><code>&amp;p</code></td><td>the address of the variable p itself</td><td><strong>stack</strong> (p is a local)</td><td>gone</td></tr>
+<tr><td><code>p</code></td><td>the value inside p: a heap address</td><td>stored on the stack, points into the heap</td><td>gone (with p)</td></tr>
+<tr><td><code>*p</code></td><td>the int at that heap address</td><td><strong>heap</strong></td><td><strong>still there</strong>, until <code>free()</code></td></tr>
+</tbody></table></div>
+<p>That last column is the root of most heap bugs. The pointer variable dies with the function. The heap block lives on until someone calls <code>free()</code>. If nobody kept a copy of its address, nobody can ever free it.</p>
+<p class="inshort"><strong>In short:</strong> stack = automatic, freed on return. Heap = manual, freed only by <code>free()</code>. Use the heap for data that must outlive the function or whose size is known only at run time.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Stack memory vs heap memory: who manages each, and when is each one freed?</p><div class="a"><strong>Stack</strong>: managed <strong>automatically by the compiler</strong>; allocated when a function is called, freed when it <strong>returns</strong>.<br><strong>Heap</strong>: managed <strong>by you</strong>; allocated by <code>malloc()</code>, freed only when you call <code>free()</code>.</div></div>
@@ -80,29 +96,33 @@
 
 <!-- ======================================================== -->
 <h2>malloc()</h2>
+<p class="crux"><strong>The problem:</strong> how do you ask for heap memory, and how much should you ask for?</p>
+<p>You call <code>malloc()</code>. You tell it a size. It either gives you a pointer to fresh heap space, or fails.</p>
 <pre><code>#include &lt;stdlib.h&gt;
 void *malloc(size_t size);</code></pre>
 <ul>
-<li><strong>Argument</strong>: how many <strong>bytes</strong> you want. <code>size_t</code> is an unsigned integer type.</li>
-<li><strong>Returns</strong>: on success, a <code>void *</code> pointer to the new block; on failure, <strong>NULL</strong>. Always check for NULL.<span class="cite">Bilal slides, Ch 14 p.2</span></li>
+<li><strong>Argument</strong>: how many <strong>bytes</strong> you want. (<code>size_t</code> is just an unsigned integer type.)</li>
+<li><strong>Returns</strong>: on success, a <code>void *</code> pointer to the new block. On failure, <strong>NULL</strong>. So always check for NULL.<span class="cite">Bilal slides, Ch 14 p.2</span></li>
 </ul>
 
 <h3>Use sizeof, never a hard-coded number</h3>
+<p>malloc counts <strong>bytes</strong>, not ints or doubles. So let the compiler tell you how many bytes a type takes:</p>
 <pre><code>double *d = malloc(sizeof(double));       // one double
 int *arr   = malloc(n * sizeof(int));      // n ints (as in your dynamic_array.c)</code></pre>
-<p><code>sizeof</code> is worked out by the compiler, so it's fast and always right for the machine you compile on. One trap:<span class="cite">Bilal slides, Ch 14 p.3</span></p>
+<p><code>sizeof</code> is worked out by the compiler, not at run time. So it's fast and always right for the machine you compile on. Example: with 4-byte ints, <code>10 * sizeof(int)</code> = 40 bytes.</p>
+<p>One trap. <code>sizeof</code> on a <strong>pointer</strong> gives the size of the pointer, not of the block it points to:<span class="cite">Bilal slides, Ch 14 p.3</span></p>
 <pre><code>int *x = malloc(10 * sizeof(int));
 printf("%zu\n", sizeof(x));    // 8: the size of the POINTER, not of the 40-byte block
 int y[10];
 printf("%zu\n", sizeof(y));    // 40: a real array, size known at compile time</code></pre>
-<p class="small">The slides print 4 for the pointer, which is right on a 32-bit machine; on today's 64-bit machines a pointer is 8 bytes. Either way: <code>sizeof(pointer)</code> is never the size of what it points to.</p>
+<p class="small">The slides print 4 for the pointer. That's right on a 32-bit machine. On today's 64-bit machines a pointer is 8 bytes. Either way: <code>sizeof(pointer)</code> is never the size of what it points to.</p>
 
 <h3>Strings need +1</h3>
+<p>C strings end with an invisible <code>'\0'</code> byte that marks the end. <code>strlen</code> does not count it. So <code>strlen("hello")</code> is 5, but storing "hello" takes <strong>6</strong> bytes:</p>
 <pre><code>char *dst = malloc(strlen(src) + 1);   // +1 for the '\0' terminator</code></pre>
-<p><code>strlen("hello")</code> is 5, but storing it takes <strong>6</strong> bytes, because C strings end with an invisible <code>'\0'</code>.</p>
 
 <h3>Casting</h3>
-<p>You'll see <code>(int *) malloc(...)</code> in the slides. In C the cast is optional: <code>void *</code> converts to any pointer type automatically. The cast just documents what you meant; it doesn't change what happens.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-api.pdf">OSTEP §14.2</a></p>
+<p>You'll see <code>(int *) malloc(...)</code> in the slides. In C the cast is optional, because <code>void *</code> converts to any pointer type automatically. OSTEP says the cast only tells the reader "yeah, I know what I'm doing". It doesn't change what happens.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-api.pdf">OSTEP §14.2</a></p>
 
 <figure>
 <svg viewBox="0 0 640 200" role="img" aria-label="After pi = malloc of 4 ints, the local pointer pi on the stack holds 2KB, the start of a 16-byte block on the heap">
@@ -128,6 +148,7 @@ printf("%zu\n", sizeof(y));    // 40: a real array, size known at compile time</
 </svg>
 <figcaption>After the call. After <code>free(pi)</code>, all four slots become "freed" but <strong>pi still holds 2KB</strong>, now an invalid address.<span class="cite">Bilal slides, Ch 14 pp.5–6</span></figcaption>
 </figure>
+<p class="inshort"><strong>In short:</strong> <code>malloc(bytes)</code> returns a <code>void *</code> or NULL (check it). Ask for <code>n * sizeof(type)</code>, add +1 for strings, and remember <code>sizeof(pointer)</code> is 8 on 64-bit, not the block size.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">How many bytes must you malloc to copy the string <code>"operating"</code>, and what's the safe general way to write it?</p><div class="a"><code>strlen("operating")</code> = 9, plus 1 for the <code>'\0'</code> terminator = <strong>10</strong>. Write <code>malloc(strlen(s) + 1)</code>. Forgetting the +1 is the "not allocating enough" (buffer overflow) bug.</div></div>
@@ -164,11 +185,17 @@ printf("%zu\n", sizeof(y));    // 40: a real array, size known at compile time</
 
 <!-- ======================================================== -->
 <h2>From your lab: an array of n ints</h2>
-<p>Lab 5, Task 4: <code>dynamic_array.c</code> asks how many ints you want, mallocs exactly that much, fills it, prints it and frees it. This is the "write the malloc line" question in its purest form.</p>
+<p>Lab 5, Task 4. <code>dynamic_array.c</code> asks how many ints you want and mallocs exactly that much. Then it fills the array, prints it and frees it. This is the "write the malloc line" question in its purest form.</p>
 <figure class="labcode" data-src="Labs/Lab 5/dynamic_array.c" data-lines="16-23" data-hl="16,19,21-22" data-caption="n * sizeof(int) bytes, then the NULL check right away, with the error on stderr and a non-zero exit"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/dynamic_array.c">Labs/Lab 5/dynamic_array.c</a><span class="lc-span">lines 16–23</span></div><pre><span class="ln hl" data-n="16">    int *arr = malloc(n * sizeof(int));</span><span class="ln" data-n="17"> </span><span class="ln" data-n="18">    //part c (check whether malloc failed)</span><span class="ln hl" data-n="19">    if (arr == NULL) {</span><span class="ln" data-n="20">        //part d report error and exit with non-zero status</span><span class="ln hl" data-n="21">        fprintf(stderr, &quot;Error: memroy allocation failed.\n&quot;);</span><span class="ln hl" data-n="22">        return 1;</span><span class="ln" data-n="23">    }</span></pre><figcaption>n * sizeof(int) bytes, then the NULL check right away, with the error on stderr and a non-zero exit</figcaption></figure>
 <figure class="labcode" data-src="Labs/Lab 5/dynamic_array.c" data-lines="27-30" data-hl="29" data-caption="arr[i] indexes the heap block like a normal array. &amp;arr[i] is the address scanf writes into"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/dynamic_array.c">Labs/Lab 5/dynamic_array.c</a><span class="lc-span">lines 27–30</span></div><pre><span class="ln" data-n="27">    for (int i = 0; i &lt; n; i++){</span><span class="ln" data-n="28">        printf(&quot; [%d]: &quot;, i);</span><span class="ln hl" data-n="29">        scanf(&quot;%d&quot;, &amp;arr[i]);</span><span class="ln" data-n="30">    }</span></pre><figcaption>arr[i] indexes the heap block like a normal array. &amp;arr[i] is the address scanf writes into</figcaption></figure>
 <figure class="labcode" data-src="Labs/Lab 5/dynamic_array.c" data-lines="42-43" data-hl="42-43" data-caption="One free for the one malloc, then NULL so arr can't dangle"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/dynamic_array.c">Labs/Lab 5/dynamic_array.c</a><span class="lc-span">lines 42–43</span></div><pre><span class="ln hl" data-n="42">    free(arr);</span><span class="ln hl" data-n="43">    arr = NULL;</span></pre><figcaption>One free for the one malloc, then NULL so arr can't dangle</figcaption></figure>
-<p>Every rule from the section above is here: <strong>bytes, not ints</strong> (<code>n * sizeof(int)</code>, line 16), <strong>check for NULL</strong> straight away (line 19), and later exactly one <code>free()</code> (line 42). <code>arr</code> itself is a local on the stack; the n ints are in the heap. Run with 3 and then 5 −2 9 it printed <code>Array contents: 5 -2 9</code>.</p>
+<p>Every rule from the section above is here:</p>
+<ul>
+<li><strong>Bytes, not ints</strong>: <code>n * sizeof(int)</code> (line 16).</li>
+<li><strong>Check for NULL</strong> straight away (line 19).</li>
+<li>Later, exactly <strong>one</strong> <code>free()</code> (line 42).</li>
+</ul>
+<p><code>arr</code> itself is a local, so it's on the stack. The n ints are in the heap. Run with 3 and then 5 −2 9, it printed <code>Array contents: 5 -2 9</code>.</p>
 <div class="labnote">Exam angle: Bilal's quizzes ask you to write the malloc line plus NULL check, then grow the block with realloc. Your file has the first half; the realloc half is the "write from memory" program in the calloc()/realloc() section below.</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">Someone writes line 16 as <code>int *arr = malloc(n);</code> and runs it with n = 6. How many bytes do they get, how many ints fit, and what happens in the loop on lines 27–30?</p><div class="a">They get <strong>6 bytes</strong>, so only <strong>1</strong> whole 4-byte int fits. From <code>arr[1]</code> onward, scanf writes <strong>past the end</strong> of the block: a <strong>buffer overflow</strong>. It may seem to work (nobody is using those bytes yet) and corrupt something later. Fix: <code>malloc(n * sizeof(int))</code>.</div></div>
@@ -196,10 +223,20 @@ printf("%zu\n", sizeof(y));    // 40: a real array, size known at compile time</
 
 <!-- ======================================================== -->
 <h2>free()</h2>
+<p class="crux"><strong>The problem:</strong> how do you give heap memory back, and what exactly happens when you do?</p>
+<p>OSTEP puts it well: allocating is the easy part; knowing when, how, and even if to free is the hard part. The call itself is simple:</p>
 <pre><code>void free(void *ptr);</code></pre>
-<p>Pass back exactly the pointer <code>malloc()</code> gave you. You <strong>don't</strong> say how big it was: the allocator stored the size itself, in a small hidden <strong>header</strong> just before your block (your <code>my_malloc.c</code> did exactly this with its <code>MemBlock</code> header, and found it again with <code>(MemBlock *)ptr - 1</code>).</p>
+<p>Pass back exactly the pointer <code>malloc()</code> gave you. Notice you <strong>don't</strong> say how big the block was. How does free() know? The allocator stored the size itself, in a small hidden <strong>header</strong> just before your block. (Your <code>my_malloc.c</code> did exactly this with its <code>MemBlock</code> header, and found it again with <code>(MemBlock *)ptr - 1</code>.)</p>
 <div class="box trap"><span class="tag">What free() does NOT do</span>
-It doesn't erase your data, doesn't set your pointer to NULL, and usually doesn't give the memory back to the OS. It just marks the block as free inside the allocator so a later <code>malloc()</code> can reuse it. Hold on to that; it explains three of the bugs below.</div>
+<ul style="margin:.3rem 0">
+<li>It doesn't erase your data.</li>
+<li>It doesn't set your pointer to NULL.</li>
+<li>It usually doesn't give the memory back to the OS.</li>
+</ul>
+It just marks the block as free inside the allocator, so a later <code>malloc()</code> can reuse it. Hold on to that. It explains three of the bugs below.</div>
+<div class="box analogy"><span class="tag">Analogy</span>
+<code>free()</code> is like checking out of a hotel room. The hotel can now give the room to someone else. But you still have the room number written down (the pointer keeps the address), and the old furniture is still inside (the data isn't erased). If you go back in, nothing stops you at first, but you may be walking into the next guest's room.</div>
+<p class="inshort"><strong>In short:</strong> <code>free(ptr)</code> takes only the pointer malloc returned; the size comes from a hidden header. It marks the block reusable, and that's all: the pointer still holds the old address.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Why don't you tell <code>free()</code> how big the block is? And name three things <code>free()</code> does NOT do.</p><div class="a">The allocator stored the size in a small hidden <strong>header</strong> just before your block, and <code>free()</code> finds it there.<br>free() does <strong>not</strong>: erase your data, set your pointer to NULL, or (usually) give the memory back to the OS. It just marks the block free for a later malloc to reuse.</div></div>
@@ -216,10 +253,11 @@ It doesn't erase your data, doesn't set your pointer to NULL, and usually doesn'
 
 <!-- ======================================================== -->
 <h2>calloc() and realloc()</h2>
+<p class="crux"><strong>The problem:</strong> malloc gives you uncleared memory of a fixed size. What if you want it zeroed, or need it bigger later?</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Call</th><th>Does</th></tr></thead>
 <tbody>
-<tr><td><code>calloc(num, size)</code></td><td>Allocates <code>num × size</code> bytes <strong>and zeroes them</strong>. Returns pointer or NULL. Prevents uninitialized reads.</td></tr>
+<tr><td><code>calloc(num, size)</code></td><td>Allocates <code>num × size</code> bytes <strong>and zeroes them</strong>. Returns a pointer or NULL. Prevents uninitialized reads. Example: <code>calloc(10, sizeof(int))</code> = 40 zeroed bytes.</td></tr>
 <tr><td><code>realloc(ptr, size)</code></td><td>Changes the block's size to <code>size</code> bytes, <strong>keeping the old contents</strong>. The pointer it returns may be <strong>the same as ptr or a new one</strong>. Returns NULL on failure.<span class="cite">Bilal slides, Ch 14 p.14</span></td></tr>
 </tbody></table></div>
 
@@ -242,7 +280,7 @@ It doesn't erase your data, doesn't set your pointer to NULL, and usually doesn'
 </figure>
 
 <h3>The program you should be able to write from memory</h3>
-<p>Allocate one int, grow it with <code>realloc()</code>, then free it. Notice the <strong>temporary pointer</strong>:</p>
+<p>Allocate one int, grow it with <code>realloc()</code>, then free it. The pattern is: malloc → check → realloc into a <strong>temporary pointer</strong> → check → switch over → use → free once.</p>
 <pre><code>#include &lt;stdio.h&gt;
 #include &lt;stdlib.h&gt;
 
@@ -265,7 +303,14 @@ int main(void) {
     return 0;
 }</code></pre>
 <div class="box exam"><span class="tag">Why the temp pointer?</span>
-If you write <code>ptr = realloc(ptr, ...)</code> and realloc fails, it returns NULL and you've just overwritten your only copy of the old block's address: a <strong>memory leak</strong>. Assign to <code>tmp</code>, check it, then copy into <code>ptr</code>. (Checked with valgrind: 0 errors, 0 bytes in use at exit.)</div>
+Suppose you write <code>ptr = realloc(ptr, ...)</code> and realloc fails:
+<ol style="margin:.3rem 0">
+<li>realloc returns NULL. The old block is still allocated and untouched.</li>
+<li>But the <code>=</code> overwrites <code>ptr</code>, your only copy of the old block's address, with NULL.</li>
+<li>Now nobody can free the old block. That's a <strong>memory leak</strong>.</li>
+</ol>
+So assign to <code>tmp</code>, check it, then copy into <code>ptr</code>. (Checked with valgrind: 0 errors, 0 bytes in use at exit.)</div>
+<p class="inshort"><strong>In short:</strong> calloc = malloc + zeroing. realloc keeps the contents but may move the block, so always use the pointer it returns, and catch it in a temp pointer so a failure doesn't leak the old block.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">How is <code>calloc(num, size)</code> different from <code>malloc(num * size)</code>?</p><div class="a">Same amount of memory, but <code>calloc()</code> also <strong>zeroes</strong> every byte. That prevents the "forgot to initialize" bug (reading leftover garbage).</div></div>
@@ -293,7 +338,8 @@ If you write <code>ptr = realloc(ptr, ...)</code> and realloc fails, it returns 
 
 <!-- ======================================================== -->
 <h2>The common errors</h2>
-<p>C gives you full control and full responsibility. The compiler catches almost none of these, and many fail silently, long after the real mistake.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-api.pdf">OSTEP §14.4</a> Each one below is a tiny program and what actually happened when it ran on Linux.</p>
+<p class="crux"><strong>The problem:</strong> the compiler doesn't check how you use the heap. Which mistakes do people make, and how does each one show up?</p>
+<p>C gives you full control and full responsibility. OSTEP notes that all of these bugs "compile and run with nary a peep from the compiler". Many fail silently, long after the real mistake. Its warning tip: "it compiled" or "it ran" does not mean "it is correct".<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-api.pdf">OSTEP §14.4</a> Each bug below is a tiny program plus what actually happened when it ran on Linux.</p>
 
 <div class="bugs">
 <h3>1 · Forgetting to allocate</h3>
@@ -305,7 +351,7 @@ strcpy(dst, "hello");       // writes to a random address</code></pre>
 <pre><code>char *src = "hello";
 char *dst = malloc(strlen(src));   // 5 bytes, but "hello\0" needs 6
 strcpy(dst, src);                  // writes 1 byte past the end</code></pre>
-<p class="out">Result: often <b>seems to work</b> (prints "hello"), because the extra byte lands on heap memory nobody is using <em>yet</em>. It may corrupt another variable or the allocator's headers and crash later. Overflows like this are a classic security hole. Fix: <code>strlen(src) + 1</code>.</p>
+<p class="out">Result: often <b>seems to work</b> (prints "hello"). Why? The extra byte lands on heap memory nobody is using <em>yet</em>. Later it may corrupt another variable or the allocator's headers, and crash. Overflows like this are a classic security hole. Fix: <code>strlen(src) + 1</code>.</p>
 
 <h3>3 · Forgetting to initialize</h3>
 <pre><code>int *x = malloc(sizeof(int));
@@ -313,15 +359,19 @@ printf("%d\n", *x);         // uninitialized read</code></pre>
 <p class="out">Result: prints <b>whatever was there before</b>: 0 one time, garbage another. <code>malloc()</code> doesn't clear memory. Fix: assign a value first, or use <code>calloc()</code>.</p>
 
 <h3>4 · Forgetting to free (memory leak)</h3>
-<p>This is your <code>memory_leak.c</code>: <code>main</code> mallocs 10 ints and never frees them, and <code>leaky_function()</code> mallocs 50 ints into a local pointer that disappears on return, so that block becomes <strong>unreachable</strong>.</p>
+<p>A <strong>memory leak</strong> is heap memory that is allocated and never freed. This is your <code>memory_leak.c</code>. It leaks twice:</p>
+<ul>
+<li><code>main</code> mallocs 10 ints and never frees them.</li>
+<li><code>leaky_function()</code> mallocs 50 ints into a local pointer. The pointer disappears on return, so that block becomes <strong>unreachable</strong>: no pointer to it is left anywhere.</li>
+</ul>
 <pre><code>$ valgrind --leak-check=full ./memory_leak
 ==53903== 40 bytes in 1 blocks are definitely lost ...
 ==53903== 200 bytes in 1 blocks are definitely lost ...
 ==53903==    definitely lost: 240 bytes in 2 blocks</code></pre>
-<p class="out">Result: no crash; the program just holds memory it can never use. In a <b>long-running</b> program (a server, the OS itself) usage keeps growing until it runs out of memory and dies.<span class="cite">Bilal slides, Ch 14 p.10</span> In a short program the OS reclaims everything at exit, but it's still a bug. Fix: every <code>malloc()</code> gets exactly one <code>free()</code>.</p>
+<p class="out">Result: no crash. The program just holds memory it can never use. 40 + 200 = 240 bytes here. In a <b>long-running</b> program (a server, the OS itself), usage keeps growing until it runs out of memory and dies.<span class="cite">Bilal slides, Ch 14 p.10</span> In a short program the OS reclaims everything at exit, but it's still a bug. Fix: every <code>malloc()</code> gets exactly one <code>free()</code>.</p>
 
 <h3>5 · Dangling pointer / use-after-free</h3>
-<p>A <strong>dangling pointer</strong> still holds the address of memory that has already been freed. Using it is <strong>undefined behaviour</strong>, and the scary part is that it often <em>seems to work</em>. Here's why, with a login-style example:</p>
+<p>A <strong>dangling pointer</strong> is a pointer that still holds the address of memory that has been freed. Reading or writing through it is <strong>use-after-free</strong>. It is <strong>undefined behaviour</strong> (C makes no promise about what happens). The scary part: it often <em>seems to work</em>. Here's why, with a login-style example:</p>
 <pre><code>char *name = malloc(16);
 strcpy(name, "alice");
 free(name);                       // name is now dangling (still holds the address)
@@ -361,12 +411,13 @@ pass now: bob</code></pre>
 
 <p>Why does this "work" instead of crashing?</p>
 <ol class="steps">
-<li><strong>free() doesn't invalidate the address.</strong> It doesn't erase the data, doesn't set the pointer to NULL, and the memory usually stays part of the process's heap (still mapped and writable). So the hardware has no reason to fault on <code>*name</code>.</li>
-<li><strong>The allocator recycles.</strong> The freed 16-byte block sits on a free list. The very next <code>malloc(16)</code> grabs the most convenient fit, which is often that same block. Now <code>name</code> and <code>pass</code> hold the same address.</li>
-<li><strong>So the old pointer silently edits the new data.</strong> Nothing crashes; you just get wrong values, far from the real bug. Attackers love this pattern.</li>
+<li><strong>free() doesn't invalidate the address.</strong> It doesn't erase the data or set the pointer to NULL. The memory usually stays part of the process's heap, still mapped and writable. So the hardware has no reason to fault on <code>*name</code>.</li>
+<li><strong>The allocator recycles.</strong> The freed 16-byte block sits on a free list. The very next <code>malloc(16)</code> grabs the most convenient fit, which is often that same block. Now <code>name</code> and <code>pass</code> hold the same address (see the printout: both 0x589ad9320010).</li>
+<li><strong>So the old pointer silently edits the new data.</strong> Nothing crashes. You just get wrong values, far from the real bug. Attackers love this pattern.</li>
 </ol>
-<p class="small">Reading a freed block can show garbage instead of the old value. When your <code>use_after_free.c</code> printed <code>*p</code> after <code>free(p)</code>, it got <code>85158778</code>, not 42, because the allocator had written its own free-list pointer into the freed block. Either way it's undefined behaviour: the outcome depends on the allocator, the compiler and the run.</p>
-<p class="out">Fix: set the pointer to NULL right after freeing (<code>free(name); name = NULL;</code>) so a later use crashes immediately and obviously. AddressSanitizer reports this exact bug as <b>heap-use-after-free</b>.</p>
+<p>Think back to the hotel analogy: you kept the old room number, and the hotel gave the room to the next guest. Writing "bob" through <code>name</code> is walking in and rearranging their things.</p>
+<p class="small">Reading a freed block can also show garbage instead of the old value. When your <code>use_after_free.c</code> printed <code>*p</code> after <code>free(p)</code>, it got <code>85158778</code>, not 42. The allocator had written its own free-list pointer into the freed block. Either way it's undefined behaviour: the outcome depends on the allocator, the compiler and the run.</p>
+<p class="out">Fix: set the pointer to NULL right after freeing (<code>free(name); name = NULL;</code>). Then a later use crashes immediately and obviously. AddressSanitizer reports this exact bug as <b>heap-use-after-free</b>.</p>
 
 <h3>6 · Double free</h3>
 <pre><code>int *p = malloc(sizeof(int));
@@ -378,14 +429,20 @@ Freed p once.
 free(): double free detected in tcache 2
 Aborted (core dumped)</code></pre>
 <div class="box exam"><span class="tag">This is how it's asked: "Compile-time or run-time error?"</span>
-<strong>Run-time</strong> (undefined behaviour). The compiler checks only syntax and types: <code>p</code> is a valid <code>int *</code>, so <code>free(p)</code> twice is perfectly legal C to it. It doesn't track which blocks are allocated at run time. The <strong>allocator</strong> does: it keeps <strong>metadata</strong> saying which blocks are free. The first <code>free</code> marks the block free; on the second, glibc notices it's already free and calls <code>abort()</code>. But that check isn't guaranteed. Other allocators may silently corrupt their free list and crash somewhere unrelated, later. That's why it's "undefined".</div>
+<strong>Run-time</strong> (undefined behaviour). Here's why, step by step:
+<ol style="margin:.3rem 0">
+<li>The compiler checks only syntax and types. <code>p</code> is a valid <code>int *</code>, so <code>free(p)</code> twice is perfectly legal C to it. It doesn't track which blocks are allocated while the program runs.</li>
+<li>The <strong>allocator</strong> does track that. It keeps <strong>metadata</strong> (bookkeeping) saying which blocks are free.</li>
+<li>The first <code>free</code> marks the block free. On the second, glibc notices it's already free and calls <code>abort()</code>.</li>
+<li>But that check isn't guaranteed. Other allocators may silently corrupt their free list and crash somewhere unrelated, later. That's why it's "undefined".</li>
+</ol></div>
 
 <h3>7 · Invalid free</h3>
 <pre><code>int x = 5;
 free(&amp;x);                   // x is on the stack, not from malloc
 int *a = malloc(4 * sizeof(int));
 free(a + 1);                // not the pointer malloc returned</code></pre>
-<p class="out">Result: <b>free(): invalid pointer · Aborted</b>. <code>free()</code> looks for its hidden header just before the address you pass; there isn't one, so it reads nonsense. Only pass a pointer that came straight from <code>malloc</code>/<code>calloc</code>/<code>realloc</code> (or NULL, which is safe and does nothing).</p>
+<p class="out">Result: <b>free(): invalid pointer · Aborted</b>. <code>free()</code> looks for its hidden header just before the address you pass. There isn't one, so it reads nonsense. Only pass a pointer that came straight from <code>malloc</code>/<code>calloc</code>/<code>realloc</code>, or NULL (which is safe and does nothing).</p>
 </div>
 
 <div class="table-wrap"><table>
@@ -404,11 +461,12 @@ free(a + 1);                // not the pointer malloc returned</code></pre>
 <div class="table-wrap"><table>
 <tbody>
 <tr><td><strong>valgrind</strong></td><td>Runs your unchanged program on a simulated CPU and reports leaks, invalid reads/writes, uninitialized reads and bad frees. <code>valgrind --leak-check=full ./prog</code></td></tr>
-<tr><td><strong>AddressSanitizer</strong></td><td>A compiler flag: <code>gcc -fsanitize=address -g</code>. Adds checks at run time and stops at the first overflow or use-after-free, naming the line.</td></tr>
+<tr><td><strong>AddressSanitizer</strong></td><td>A compiler flag: <code>gcc -fsanitize=address -g</code>. It adds checks at run time. It stops at the first overflow or use-after-free and names the line.</td></tr>
 </tbody></table></div>
 <p>On the name/pass program above, ASan stops immediately:</p>
 <pre><code>ERROR: AddressSanitizer: heap-use-after-free on address 0x7022185e0010
 WRITE of size 4 ... in main reuse.c:11</code></pre>
+<p class="inshort"><strong>In short:</strong> seven bugs, all <strong>run-time</strong>, none caught by the compiler. Overflow and use-after-free often "seem to work"; double free and invalid free usually abort; leaks only hurt long-running programs. Every malloc gets exactly one free of the exact pointer it returned.</p>
 
 <div class="checkpoint">
 <div class="rc"><div class="q">Name the bug, and say why it might still print 3:<pre><code>struct node *n = malloc(sizeof *n);
@@ -477,12 +535,18 @@ b[0] = 9;</code></pre></div>
 <h2>From your lab: the bug programs</h2>
 <p>Lab 5, Task 5 had you write one tiny program per bug. Here are the lines that matter, matched to the numbered bugs above.</p>
 <figure class="labcode" data-src="Labs/Lab 5/use_after_free.c" data-lines="10-19" data-hl="13,15,17" data-caption="Bug 5: after free(p) on line 13, p still holds the address, so lines 15 and 17 read and write freed memory"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/use_after_free.c">Labs/Lab 5/use_after_free.c</a><span class="lc-span">lines 10–19</span></div><pre><span class="ln" data-n="10">    *p = 42;</span><span class="ln" data-n="11">    printf(&quot;Before free: *p = %d\n&quot;, *p);</span><span class="ln" data-n="12"> </span><span class="ln hl" data-n="13">    free(p); // memory correctly released here</span><span class="ln" data-n="14">    // but we keep using pointer after its been freed</span><span class="ln hl" data-n="15">    printf(&quot;After free (use-after-free read): *p = %d\n&quot;, *p);</span><span class="ln" data-n="16"> </span><span class="ln hl" data-n="17">    *p = 99;</span><span class="ln" data-n="18"> </span><span class="ln" data-n="19">    printf(&quot;After free (use-after-free write): *p = %d\n&quot;, *p);</span></pre><figcaption>Bug 5: after free(p) on line 13, p still holds the address, so lines 15 and 17 read and write freed memory</figcaption></figure>
-<p>On one run it printed <code>42</code>, then <code>-536531450</code> (garbage: the allocator had already written its free-list pointer into the block), then <code>99</code>. Your own earlier run printed 85158778 for the middle line. Different every time, because it's <strong>undefined behaviour</strong>.</p>
+<p>On one run it printed three values:</p>
+<ol class="steps">
+<li><code>42</code>: before the free, so this one is certain.</li>
+<li><code>-536531450</code>: garbage. The allocator had already written its free-list pointer into the block. (Your own earlier run printed 85158778 here.)</li>
+<li><code>99</code>: the write landed, because the block was still mapped.</li>
+</ol>
+<p>Different every time, because it's <strong>undefined behaviour</strong>.</p>
 <figure class="labcode" data-src="Labs/Lab 5/double_free.c" data-lines="11-19" data-hl="14,18" data-caption="Bug 6: the second free(p) on line 18 hits a block glibc already marked free"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/double_free.c">Labs/Lab 5/double_free.c</a><span class="lc-span">lines 11–19</span></div><pre><span class="ln" data-n="11">    *p = 7;</span><span class="ln" data-n="12">    printf(&quot;Allocated and set *p = %d\n&quot;, *p);</span><span class="ln" data-n="13"> </span><span class="ln hl" data-n="14">    free(p);</span><span class="ln" data-n="15">    printf(&quot;Freed p once.\n&quot;);</span><span class="ln" data-n="16"> </span><span class="ln" data-n="17">    //double free corrupts heap&#x27;s free list metadata</span><span class="ln hl" data-n="18">    free(p);</span><span class="ln" data-n="19">    printf(&quot;Freed p twice&quot;);</span></pre><figcaption>Bug 6: the second free(p) on line 18 hits a block glibc already marked free</figcaption></figure>
 <p>The program dies <strong>inside line 18</strong> (<code>free(): double free detected in tcache 2</code>, then Aborted, exit status 134). Line 19's "Freed p twice" never prints.</p>
 <figure class="labcode" data-src="Labs/Lab 5/memory_leak.c" data-lines="8-9" data-hl="9" data-caption="Bug 4, second leak: data is a local, so its heap address is lost when leaky_function returns"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/memory_leak.c">Labs/Lab 5/memory_leak.c</a><span class="lc-span">lines 8–9</span></div><pre><span class="ln" data-n="8">void leaky_function(void){</span><span class="ln hl" data-n="9">    int *data = malloc(50 * sizeof(int));</span></pre><figcaption>Bug 4, second leak: data is a local, so its heap address is lost when leaky_function returns</figcaption></figure>
 <figure class="labcode" data-src="Labs/Lab 5/memory_leak.c" data-lines="20-34" data-hl="22-25,32" data-caption="Bug 4, first leak: arr is never freed. Note the NULL check on lines 23 to 25 has no return"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/memory_leak.c">Labs/Lab 5/memory_leak.c</a><span class="lc-span">lines 20–34</span></div><pre><span class="ln" data-n="20">int main(void){</span><span class="ln" data-n="21">    //First leak: allocate directly in main and never free</span><span class="ln hl" data-n="22">    int *arr = malloc(10 * sizeof(int));</span><span class="ln hl" data-n="23">    if (arr==NULL){</span><span class="ln hl" data-n="24">        fprintf(stderr, &quot;Allocation failed.\n&quot;);</span><span class="ln hl" data-n="25">    }</span><span class="ln" data-n="26">    for (int i = 0; i &lt; 10; i++){</span><span class="ln" data-n="27">        arr[i] = i * i;</span><span class="ln" data-n="28">    }</span><span class="ln" data-n="29">    printf(&quot;main: allocated 10 ints, but never freed em.\n&quot;);</span><span class="ln" data-n="30"> </span><span class="ln" data-n="31">    //Leak 2: allocate inside a function, never freed, pointer lost on return</span><span class="ln hl" data-n="32">    leaky_function();</span><span class="ln" data-n="33"> </span><span class="ln" data-n="34">    return 0;</span></pre><figcaption>Bug 4, first leak: arr is never freed. Note the NULL check on lines 23 to 25 has no return</figcaption></figure>
-<div class="labnote warn">Small bug in your <code>memory_leak.c</code>: if <code>malloc</code> fails, lines 23–25 print the error but <strong>keep going</strong>, so line 27 writes through a NULL pointer and crashes. A NULL check must stop: add <code>return 1;</code> inside the braces (as your <code>dynamic_array.c</code> does on line 22).</div>
+<div class="labnote warn">Small bug in your <code>memory_leak.c</code>: if <code>malloc</code> fails, lines 23–25 print the error but <strong>keep going</strong>. Then line 27 writes through a NULL pointer and crashes. A NULL check must stop the program: add <code>return 1;</code> inside the braces (as your <code>dynamic_array.c</code> does on line 22).</div>
 <div class="labnote">Exam angle: "what does this print and why", "compile-time or run-time error?", and "how many bytes leak?" for little programs exactly like these.</div>
 <div class="checkpoint">
 <div class="rc"><p class="q">Predict the three lines <code>use_after_free.c</code> prints. Which of them can you be sure of?</p><div class="a">Line 11: <code>Before free: *p = 42</code> is <strong>certain</strong>. Line 15 reads freed memory: <strong>unpredictable</strong> (42, or garbage such as the allocator's free-list pointer; on one run -536531450). Line 19 will <em>probably</em> print 99 because the block is still mapped, but it's undefined behaviour, so nothing is guaranteed and the write may corrupt the allocator.</div></div>
@@ -519,12 +583,13 @@ b[0] = 9;</code></pre></div>
 
 <!-- ======================================================== -->
 <h2>Under the hood: the OS's part</h2>
+<p class="crux"><strong>The problem:</strong> malloc hands out heap memory, but where does malloc itself get memory from?</p>
 <div class="box key"><span class="tag">Key fact</span>
-<code>malloc()</code> and <code>free()</code> are <strong>library calls</strong> (in the C library), <strong>not system calls</strong>. The library manages space inside your heap, and only asks the OS for more when it runs out.</div>
+<code>malloc()</code> and <code>free()</code> are <strong>library calls</strong> (in the C library), <strong>not system calls</strong>. The library manages space inside your heap. It only asks the OS for more when it runs out.</div>
 <p>To get more memory, the library uses real system calls:<span class="cite">Bilal slides, Ch 14 pp.15–16</span></p>
 <ul>
-<li><strong><code>brk</code> / <code>sbrk</code></strong>: move the program's <strong>break</strong>, the address where the heap ends. <code>brk(addr)</code> sets it; <code>sbrk(increment)</code> moves it by an amount. Moving it up grows the heap. <strong>Programmers should never call these directly</strong>; leave them to malloc.</li>
-<li><strong><code>mmap</code></strong>: create a brand-new <strong>anonymous</strong> memory region (not tied to any file) somewhere else in the address space. Large requests often use this. Your <code>mmap_allocator.c</code> and <code>my_malloc.c</code> (Lab 5) got their memory this way, and it's why <code>va_explorer</code>'s 2 MiB block appeared far from the rest of the heap.</li>
+<li><strong><code>brk</code> / <code>sbrk</code></strong> move the program's <strong>break</strong>. The break is the address where the heap ends. <code>brk(addr)</code> sets it to an address. <code>sbrk(increment)</code> moves it by an amount. Moving it up grows the heap. <strong>Programmers should never call these directly</strong>; leave them to malloc.</li>
+<li><strong><code>mmap</code></strong> creates a brand-new <strong>anonymous</strong> memory region (not tied to any file) somewhere else in the address space. Large requests often use this. Your <code>mmap_allocator.c</code> and <code>my_malloc.c</code> (Lab 5) got their memory this way. It's also why <code>va_explorer</code>'s 2 MiB block appeared far from the rest of the heap.</li>
 </ul>
 <figure>
 <svg viewBox="0 0 640 140" role="img" aria-label="The heap ends at the program break; sbrk moves the break to a higher address to grow the heap; mmap creates a separate region elsewhere">
@@ -546,7 +611,13 @@ b[0] = 9;</code></pre></div>
 </svg>
 <figcaption>malloc grows the classic heap by pushing the break up with brk/sbrk, or asks mmap for a separate chunk.</figcaption>
 </figure>
-<p><strong>Two levels of memory management.</strong> <code>free()</code> normally returns memory to the <em>library</em> (for the next malloc), not to the OS. The OS reclaims <em>all</em> of a process's memory (heap, stack, code) when the process exits. That's why a leak in a tiny program "doesn't matter", but one in a long-running server does.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-api.pdf">OSTEP §14.4 aside</a></p>
+<p><strong>Two levels of memory management.</strong> OSTEP explains it like this:<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-api.pdf">OSTEP §14.4 aside</a></p>
+<ol class="steps">
+<li><strong>The OS level</strong>: the OS hands memory to a process, and takes <em>all</em> of it back (heap, stack, code) when the process exits.</li>
+<li><strong>The library level</strong>: inside the process, malloc and free share out the heap. <code>free()</code> normally returns memory to the <em>library</em> (for the next malloc), not to the OS.</li>
+</ol>
+<p>That's why a leak in a tiny program "doesn't matter": the OS cleans up at exit. A leak in a long-running server does matter, because it never exits.</p>
+<p class="inshort"><strong>In short:</strong> malloc/free are library calls. Underneath, the library uses the system calls brk/sbrk (move the end of the heap) and mmap (a new anonymous region). The OS reclaims everything when the process exits.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Are <code>malloc()</code> and <code>free()</code> system calls? If not, how does memory actually come from the OS?</p><div class="a">No, they are <strong>library calls</strong> (C library). They manage space inside your heap and, when they need more, use real <strong>system calls</strong>: <strong>brk/sbrk</strong> (move the program break, where the heap ends) or <strong>mmap</strong> (a new anonymous region, used for large requests).</div></div>
@@ -573,22 +644,32 @@ b[0] = 9;</code></pre></div>
 
 <!-- ======================================================== -->
 <h2>From your lab: your own malloc with a header</h2>
-<p>Lab 5, Tasks 6–10: <code>mmap_allocator.c</code> got one page straight from the OS, and <code>my_malloc.c</code> built a tiny allocator on top of <code>mmap</code>. It shows the two facts from this lesson: free() finds the size in a hidden <strong>header</strong>, and the library (not the OS) manages the space.</p>
+<p>Lab 5, Tasks 6–10. <code>mmap_allocator.c</code> got one page straight from the OS. <code>my_malloc.c</code> built a tiny allocator on top of <code>mmap</code>. It shows two facts from this lesson:</p>
+<ul>
+<li>free() finds the size in a hidden <strong>header</strong>.</li>
+<li>The library (not the OS) manages the space.</li>
+</ul>
 <figure class="labcode" data-src="Labs/Lab 5/mmap_allocator.c" data-lines="10-15" data-hl="10-11" data-caption="Task 6: a fresh anonymous region, readable and writable, not backed by a file. MAP_FAILED, not NULL, signals failure"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/mmap_allocator.c">Labs/Lab 5/mmap_allocator.c</a><span class="lc-span">lines 10–15</span></div><pre><span class="ln hl" data-n="10">    void *addr = mmap(NULL, ALLOC_SIZE, PROT_READ | PROT_WRITE,</span><span class="ln hl" data-n="11">                       MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);</span><span class="ln" data-n="12">    if (addr == MAP_FAILED) {</span><span class="ln" data-n="13">        perror(&quot;mmap failed&quot;); // Print system error message</span><span class="ln" data-n="14">        return EXIT_FAILURE; // Exit</span><span class="ln" data-n="15">    }</span></pre><figcaption>Task 6: a fresh anonymous region, readable and writable, not backed by a file. MAP_FAILED, not NULL, signals failure</figcaption></figure>
 <figure class="labcode" data-src="Labs/Lab 5/my_malloc.c" data-lines="7-15" data-hl="8-10,13" data-caption="Task 7: the header in front of every block. On 64-bit it is 24 bytes: 8 size + 4 is_free + 4 padding + 8 next"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/my_malloc.c">Labs/Lab 5/my_malloc.c</a><span class="lc-span">lines 7–15</span></div><pre><span class="ln" data-n="7">typedef struct MemBlock {</span><span class="ln hl" data-n="8">    size_t size;</span><span class="ln hl" data-n="9">    int is_free;</span><span class="ln hl" data-n="10">    struct MemBlock *next;</span><span class="ln" data-n="11">} MemBlock;</span><span class="ln" data-n="12"> </span><span class="ln hl" data-n="13">#define HDR sizeof(MemBlock)</span><span class="ln" data-n="14"> </span><span class="ln" data-n="15">static MemBlock *head = NULL;</span></pre><figcaption>Task 7: the header in front of every block. On 64-bit it is 24 bytes: 8 size + 4 is_free + 4 padding + 8 next</figcaption></figure>
 <figure class="labcode" data-src="Labs/Lab 5/my_malloc.c" data-lines="19-26" data-hl="21,23,26" data-caption="Ask the OS (mmap) for whole pages: header plus request, rounded up to a 4096-byte page. The header itself is not usable space"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/my_malloc.c">Labs/Lab 5/my_malloc.c</a><span class="lc-span">lines 19–26</span></div><pre><span class="ln" data-n="19">static MemBlock *request_space(MemBlock *last, size_t size){</span><span class="ln" data-n="20">    size_t page = (size_t)sysconf(_SC_PAGESIZE);</span><span class="ln hl" data-n="21">    size_t total = ((HDR+size+page-1)/page)*page; //round up to a page</span><span class="ln" data-n="22"> </span><span class="ln hl" data-n="23">    MemBlock *block = mmap(NULL, total, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);</span><span class="ln" data-n="24">    if (block == MAP_FAILED) return NULL;</span><span class="ln" data-n="25"> </span><span class="ln hl" data-n="26">    block-&gt;size = total - HDR;</span></pre><figcaption>Ask the OS (mmap) for whole pages: header plus request, rounded up to a 4096-byte page. The header itself is not usable space</figcaption></figure>
 <figure class="labcode" data-src="Labs/Lab 5/my_malloc.c" data-lines="56-71" data-hl="60,63,70" data-caption="Reuse a free block if one fits, else mmap more. Return the address just past the header"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/my_malloc.c">Labs/Lab 5/my_malloc.c</a><span class="lc-span">lines 56–71</span></div><pre><span class="ln" data-n="56">void *my_malloc(size_t size) {</span><span class="ln" data-n="57">    if (size == 0) return NULL; //bad case</span><span class="ln" data-n="58"> </span><span class="ln" data-n="59">    MemBlock *last = head;</span><span class="ln hl" data-n="60">    MemBlock *block = (head != NULL) ? find_free_block(&amp;last,size) : NULL;</span><span class="ln" data-n="61"> </span><span class="ln" data-n="62">    if (block == NULL) {        //nothing free fits so we ask OS</span><span class="ln hl" data-n="63">        block = request_space(last, size);</span><span class="ln" data-n="64">        if (block == NULL) return NULL;     //OS fails, another bad case</span><span class="ln" data-n="65">        if (head == NULL) head = block;</span><span class="ln" data-n="66">    }</span><span class="ln" data-n="67"> </span><span class="ln" data-n="68">    split_block(block, size);</span><span class="ln" data-n="69">    block-&gt;is_free = 0;</span><span class="ln hl" data-n="70">    return (void *)(block + 1);             //memory right after header</span><span class="ln" data-n="71">}</span></pre><figcaption>Reuse a free block if one fits, else mmap more. Return the address just past the header</figcaption></figure>
 <figure class="labcode" data-src="Labs/Lab 5/my_malloc.c" data-lines="74-83" data-hl="76,77,79-81" data-caption="Task 9: step back one header to find the size. No size argument needed, and no munmap: the block goes back on the list"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/my_malloc.c">Labs/Lab 5/my_malloc.c</a><span class="lc-span">lines 74–83</span></div><pre><span class="ln" data-n="74">void my_free(void *ptr) {</span><span class="ln" data-n="75">    if (ptr == NULL) return;</span><span class="ln hl" data-n="76">    MemBlock *block = (MemBlock *)ptr -1;</span><span class="ln hl" data-n="77">    block-&gt;is_free = 1;</span><span class="ln" data-n="78"> </span><span class="ln hl" data-n="79">    if (block-&gt;next != NULL &amp;&amp; block-&gt;next-&gt;is_free){</span><span class="ln hl" data-n="80">        block-&gt;size += HDR + block-&gt;next-&gt;size;</span><span class="ln hl" data-n="81">        block-&gt;next = block-&gt;next-&gt;next;</span><span class="ln" data-n="82">    }</span><span class="ln" data-n="83">}</span></pre><figcaption>Task 9: step back one header to find the size. No size argument needed, and no munmap: the block goes back on the list</figcaption></figure>
 <ol class="steps">
-<li><strong>The header trick</strong> (section "free()"): <code>my_malloc</code> returns <code>block + 1</code> (line 70). Because <code>block</code> is a <code>MemBlock *</code>, +1 moves forward by one whole header, 24 bytes. <code>my_free</code> undoes it with <code>(MemBlock *)ptr - 1</code> (line 76).</li>
-<li><strong>Two levels of memory management</strong> (section "Under the hood"): only <code>request_space</code> makes a system call (<code>mmap</code>, line 23). <code>my_free</code> never calls <code>munmap</code>; it just sets <code>is_free = 1</code> so the next <code>my_malloc</code> can reuse the block.</li>
+<li><strong>The header trick</strong> (section "free()"): <code>my_malloc</code> returns <code>block + 1</code> (line 70). Pointer arithmetic counts in units of the pointed-to type. <code>block</code> is a <code>MemBlock *</code>, so +1 moves forward one whole header: 24 bytes. <code>my_free</code> undoes it with <code>(MemBlock *)ptr - 1</code> (line 76), stepping back 24 bytes.</li>
+<li><strong>Two levels of memory management</strong> (section "Under the hood"): only <code>request_space</code> makes a system call (<code>mmap</code>, line 23). <code>my_free</code> never calls <code>munmap</code>. It just sets <code>is_free = 1</code>, so the next <code>my_malloc</code> can reuse the block.</li>
 </ol>
 <p>One run of your test (Task 10):</p>
 <pre><code>small=0x7d20825a8018 medium=0x7d20825a8040 large=0x7d20825a6018
 reuse=0x7d20825a8018 (should match small)
 my_malloc(0) = (nil) (expect NULL)
 my_free(NULL) ok</code></pre>
-<p>Read the addresses: mmap hands out page-aligned memory (ending <code>000</code>), so <code>small</code> = page + 24 = <code>…018</code>. <code>medium</code> = small + 16 bytes of data + the next 24-byte header = <code>…040</code>. <code>large</code> (4096 bytes) doesn't fit in what's left of that page, so a second mmap region is used. After freeing, <code>reuse</code> gets <code>small</code>'s address back.</p>
+<p>Read the addresses one at a time (0x18 = 24, 0x40 = 64):</p>
+<ul>
+<li>mmap hands out page-aligned memory, ending <code>000</code>. So <code>small</code> = page + 24-byte header = <code>…018</code>.</li>
+<li><code>medium</code> = small + 16 bytes of data + the next 24-byte header = 24 + 16 + 24 = 64 = <code>…040</code>.</li>
+<li><code>large</code> (4096 bytes) doesn't fit in what's left of that page, so a second mmap region is used.</li>
+<li>After freeing, <code>reuse</code> gets <code>small</code>'s address back.</li>
+</ul>
 <div class="labnote warn">Real bug in <code>my_free</code> (lines 79–81): it merges a block with <code>block-&gt;next</code> without checking that the two are <strong>next to each other in memory</strong>. Blocks from two different mmap regions are neighbours in the list but not in memory. I tested it: <code>a = my_malloc(4072)</code> (fills a whole page), <code>b = my_malloc(100)</code> (new region), <code>my_free(b); my_free(a);</code> left a's block claiming 8168 bytes inside a 4096-byte page, and a following <code>my_malloc(6000)</code> handed back a's address and crashed with a segmentation fault when written. Fix: only merge if <code>(char *)block + HDR + block-&gt;size == (char *)block-&gt;next</code>. Your Task 10 test never triggers this case, so its output is fine.</div>
 <div class="labnote">Exam angle: why free() needs no size; what <code>ptr - 1</code> does with a struct pointer; malloc/free are library calls and only request_space (mmap) is a system call.</div>
 <div class="checkpoint">

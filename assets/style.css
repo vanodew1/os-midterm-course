@@ -295,6 +295,12 @@ dl.gloss dd .avoid { font-size: .8rem; color: var(--muted); font-style: italic; 
 table.labmap td, table.labmap th { vertical-align: top; }
 table.labmap tr.lm-lesson th { text-align: left; padding-top: 1.2rem; font-family: var(--sans); }
 
+/* ---------- plain-language framing (problem → … → in short) ---------- */
+.crux { font-family: var(--sans); font-size: .95rem; background: var(--surface); border-left: 3px solid var(--accent);
+  padding: .55rem .9rem; border-radius: 0 6px 6px 0; margin: .6rem 0 1rem; }
+.inshort { font-family: var(--sans); font-size: .92rem; border-top: 1px dashed var(--rule); padding-top: .6rem; margin-top: 1.2rem; }
+.crux strong, .inshort strong { color: var(--accent); }
+
 /* ---------- print ---------- */
 @media print {
   :root { --bg: #fff; --surface: #f6f6f4; }

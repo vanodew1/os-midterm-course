@@ -420,7 +420,7 @@ insert(queue, curr);          // return curr to queue</code></pre>
 <!-- ======================================================== -->
 <h2>Stride vs lottery</h2>
 <p class="crux"><strong>The problem:</strong> stride is exact, so why would anyone still use lottery?</p>
-<p>Because stride has to remember a pass for every job. Lottery remembers almost nothing. That matters most when a new job arrives.</p>
+<p>Because stride has to remember a pass for every job. Lottery only needs each job's tickets and the total. That matters most when a new job arrives.</p>
 <div class="table-wrap"><table>
 <thead><tr><th></th><th>Lottery</th><th>Stride</th></tr></thead>
 <tbody>
@@ -431,7 +431,7 @@ insert(queue, curr);          // return curr to queue</code></pre>
 </tbody></table></div>
 <div class="box trap"><span class="tag">The new-job problem</span>
 Say the others have passes around 1,000, and a new job joins with pass 0. It is now the lowest by a mile. So it wins every pick until it catches up. That's what Dr. Bilal's slide means by "If new job enters with pass value 0, it will monopolize the CPU!" A sensible fix is to start it at the current <em>minimum</em> pass. Linux's CFS does exactly this with <code>min_vruntime</code> (next lesson).<span class="cite">Bilal slides, Ch 9A p.23</span></div>
-<p class="inshort"><strong>In short:</strong> stride is deterministic and exact but keeps a pass per job. Lottery is probabilistic but keeps no per-job state, so a new job is easy: just add its tickets. In stride, a newcomer at pass 0 monopolizes the CPU.</p>
+<p class="inshort"><strong>In short:</strong> stride is deterministic and exact but keeps a pass per job. Lottery is probabilistic but keeps no global state (just tickets and the total), so a new job is easy: just add its tickets. In stride, a newcomer at pass 0 monopolizes the CPU.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Stride scheduling: why is a new job that starts with pass 0 a problem, and what is a sensible fix?</p><div class="a">Everyone else's pass is already large, so the newcomer has the lowest pass by far and <strong>monopolises the CPU</strong> until it catches up. Fix: start it at the <strong>current minimum pass</strong> (CFS does the same with min_vruntime).</div></div>

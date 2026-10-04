@@ -55,7 +55,7 @@ OSTEP builds the policies like a story:
 
 <div class="box exam"><span class="tag">Bilal vs. OSTEP / Dr. Zafar</span>
 OSTEP and Dr. Zafar list <strong>five</strong> assumptions. The extra one is "<em>once started, each job runs to completion</em>". In other words: no job is ever stopped halfway. They put it third, so "no I/O" becomes 4 and "known run-time" becomes 5. Dr. Bilal folds it into the STCF slide instead ("add preemption to SJF"). So if a question says "relax assumption 3", check whose numbering it uses. Writing the assumption out in words is always safe.</div>
-<p class="inshort"><strong>In short:</strong> four (Bilal) or five (OSTEP) unrealistic assumptions. Dropping each one breaks a policy and gives the next: FIFO → SJF → STCF → RR → MLFQ.</p>
+<p class="inshort"><strong>In short:</strong> four (Bilal) or five (OSTEP) unrealistic assumptions. Dropping them one at a time (plus one new metric, response time, which gives RR) breaks each policy and gives the next: FIFO → SJF → STCF → RR → MLFQ.</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">List Dr. Bilal's four workload assumptions at the start of the scheduling chapter. What fifth one do OSTEP and Dr. Zafar add?</p><div class="a"><ol><li>Each job runs for the <strong>same amount of time</strong>.</li><li>All jobs <strong>arrive at the same time</strong>.</li><li>Jobs use <strong>only the CPU</strong> (no I/O).</li><li>The <strong>run-time</strong> of each job is <strong>known</strong>.</li></ol>OSTEP's extra one: <strong>once started, each job runs to completion</strong> (no preemption), listed third.</div></div>

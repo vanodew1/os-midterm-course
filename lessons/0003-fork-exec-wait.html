@@ -631,7 +631,7 @@ if (rc == 0) {                                     // child
     wait(NULL);                                    // shell waits, then re-prompts
 }</code></pre>
 <div class="box key"><span class="tag">The file-descriptor trick</span>
-A <strong>file descriptor</strong> (fd) is a small number a process uses to name an open file. fd 0 is the keyboard input, fd 1 is the screen output, fd 2 is error output.
+A <strong>file descriptor</strong> (fd) is a small number a process uses to name an open file. fd 0 is standard input, fd 1 is standard output, fd 2 is standard error. By default they are the keyboard and the screen, but the numbers can be pointed somewhere else.
 <ol>
 <li><code>open()</code> always returns the <strong>lowest free</strong> file descriptor.</li>
 <li>So close fd 1 (stdout) first. Now 1 is the lowest free number.</li>

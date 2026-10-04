@@ -506,7 +506,7 @@ While a process is <em>not running</em>, the OS can move it:
 <tr><td class="os">OS</td><td>Kill B: <strong>deallocate B's memory</strong> (back on the free list), remove B from the process table</td></tr>
 </tbody></table></div>
 <p>Notice the middle part, "A runs". The OS does nothing there. The hardware does all the translating.</p>
-<p class="inshort"><strong>In short:</strong> it's still limited direct execution. The OS sets things up, gets out of the way, and steps in only on a timer interrupt or a fault.</p>
+<p class="inshort"><strong>In short:</strong> it's still limited direct execution. The OS sets things up, gets out of the way, and steps in only when it must (in this timeline: a timer interrupt and a fault).</p>
 
 <div class="checkpoint">
 <div class="rc"><p class="q">Process B executes a load whose virtual address is out of bounds. Trace what the hardware and the OS do.</p><div class="a"><strong>Hardware</strong>: detects the violation, switches to kernel mode, jumps to the OS's illegal-memory-access handler (registered in the trap table at boot).<br><strong>OS</strong>: kills B, <strong>deallocates B's memory</strong> (back onto the free list) and removes B from the process table.</div></div>

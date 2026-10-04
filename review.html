@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Weak Spots</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/recall.js" defer></script>
+<style>
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; margin: 1.2rem 0; }
+  .tile { border: 1px solid var(--rule); border-radius: 10px; padding: .7rem .9rem; font-family: var(--sans); }
+  .tile b { display: block; font-size: 1.8rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .tile span { font-size: .75rem; color: var(--ink-2); }
+  .tile.missed b { color: var(--bad); } .tile.shaky b { color: var(--warn); } .tile.got b { color: var(--good); }
+  .deck-ctl { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; font-family: var(--sans); font-size: .82rem; margin: 1rem 0; }
+  .deck-ctl .grow { flex: 1; }
+  .card-meta { font-family: var(--sans); font-size: .75rem; color: var(--muted); display: flex; justify-content: space-between; gap: 1rem; margin: 1.4rem 0 -.6rem; }
+  .card-meta a { color: var(--ink-2); }
+  .next-row { display: flex; justify-content: flex-end; margin-top: .4rem; }
+  .empty { font-family: var(--sans); font-size: .9rem; color: var(--ink-2); background: var(--surface); border-radius: 10px; padding: 1rem 1.1rem; }
+  #byLesson td a { text-decoration: none; }
+  .danger { font-family: var(--sans); font-size: .75rem; color: var(--muted); background: none; border: 0; text-decoration: underline; cursor: pointer; padding: 0; }
+  @media (max-width: 600px) { .tile b { font-size: 1.4rem; } }
+</style>
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="index.html">← Course map</a><span>Review · spaced practice</span></nav>
+
+<p class="kicker">Active recall</p>
+<h1>My weak spots</h1>
+<p class="lede">Every recall check you marked <strong>Shaky</strong> or <strong>Missed</strong>, and every practice question you got wrong on the first try, ends up here. Go through the deck until the red number is zero.</p>
+
+<div class="tiles">
+  <div class="tile missed"><b id="nMissed">0</b><span>Missed</span></div>
+  <div class="tile shaky"><b id="nShaky">0</b><span>Shaky</span></div>
+  <div class="tile got"><b id="nGot">0</b><span>Got it</span></div>
+</div>
+
+<h2>Flashcard deck</h2>
+<div class="deck-ctl">
+  <div class="seg-ctl" id="filter">
+    <button data-f="weak" class="on">Missed + Shaky</button><button data-f="missed">Missed only</button><button data-f="all">Everything</button>
+  </div>
+  <label><input type="checkbox" id="shuffle"> Shuffle</label>
+  <span class="grow"></span>
+  <span id="progress"></span>
+</div>
+<div id="deck"></div>
+
+<h2>By lesson</h2>
+<div class="table-wrap"><table id="byLesson">
+<thead><tr><th>Lesson</th><th class="num">Missed</th><th class="num">Shaky</th><th class="num">Got it</th></tr></thead>
+<tbody></tbody></table></div>
+
+<div class="box key"><span class="tag">How to use this</span>
+<ol style="margin:.3rem 0 0; padding-left:1.2rem">
+<li>Type your answer before you reveal it, every time. If you only "think" the answer, you'll feel like you know more than you do.</li>
+<li>Grade yourself honestly. Mark <strong>Got it</strong> only if you'd have scored full marks in the exam.</li>
+<li>Come back after a gap: tonight, tomorrow morning and Tuesday morning. A card you get right after a break is one you really know.</li>
+</ol></div>
+
+<p class="small">Your grades are saved in this browser only. If you clear site data or switch to another browser, they're gone.
+<button class="danger" id="reset">Clear all my grades</button></p>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const R = window.Recall;
+  const deck = document.getElementById('deck');
+  const order = { missed: 0, shaky: 1, got: 2 };
+  let filter = 'weak', cards = [], pos = 0;
+
+  const items = () => Object.entries(R.load().items).map(([id, it]) => Object.assign({ id }, it));
+  const lessonNum = t => { const m = /Lesson\s+(\d+)/.exec(t || ''); return m ? +m[1] : 99; };
+
+  function stats() {
+    const all = items();
+    const count = g => all.filter(i => i.grade === g).length;
+    nMissed.textContent = count('missed'); nShaky.textContent = count('shaky'); nGot.textContent = count('got');
+    const by = {};
+    all.forEach(i => {
+      const k = i.page || '?';
+      by[k] = by[k] || { title: i.title || k, page: k, missed: 0, shaky: 0, got: 0 };
+      if (by[k][i.grade] !== undefined) by[k][i.grade]++;
+    });
+    const rows = Object.values(by).sort((a, b) => lessonNum(a.title) - lessonNum(b.title));
+    document.querySelector('#byLesson tbody').innerHTML = rows.length
+      ? rows.map(r => `<tr><td><a href="${r.page}">${r.title}</a></td><td class="num">${r.missed}</td><td class="num">${r.shaky}</td><td class="num">${r.got}</td></tr>`).join('')
+      : '<tr><td colspan="4" class="small">No grades yet.</td></tr>';
+  }
+
+  function build() {
+    let list = items().filter(i => filter === 'all' || i.grade === 'missed' || (filter === 'weak' && i.grade === 'shaky'));
+    if (shuffle.checked) list.sort(() => Math.random() - .5);
+    else list.sort((a, b) => (order[a.grade] - order[b.grade]) || (a.when - b.when));
+    cards = list; pos = 0; show();
+  }
+
+  function show() {
+    deck.innerHTML = '';
+    if (!cards.length) {
+      progress.textContent = '';
+      deck.innerHTML = '<div class="empty">' + (items().length
+        ? 'Nothing in this pile. 🎉 Pick <strong>Everything</strong> to keep practising, or go back to a lesson.'
+        : 'Nothing here yet. Work through a lesson: every recall check you mark Shaky or Missed, and every practice question you get wrong on the first try, will show up here.') + '</div>';
+      return;
+    }
+    if (pos >= cards.length) {
+      progress.textContent = `${cards.length} / ${cards.length}`;
+      deck.innerHTML = `<div class="empty">Deck done: ${cards.length} cards. <button class="btn" id="again">Go again</button></div>`;
+      document.getElementById('again').onclick = build;
+      return;
+    }
+    const it = cards[pos];
+    progress.textContent = `Card ${pos + 1} / ${cards.length}`;
+    const meta = document.createElement('div'); meta.className = 'card-meta';
+    meta.innerHTML = `<span>${it.title || ''}${it.kind === 'practice' ? ' · practice question' : it.kind === 'close' ? ' · spot the true one' : ''}</span><a href="${it.page}">open lesson ↗</a>`;
+    const box = document.createElement('div'); box.className = 'rc'; box.dataset.id = it.id;
+    box.innerHTML = `<p class="q">${it.q}</p><div class="a">${it.a}</div>`;
+    const next = document.createElement('div'); next.className = 'next-row';
+    next.innerHTML = '<button class="btn ghost">Skip</button>';
+    deck.append(meta, box, next);
+    R.initCard(box, { page: it.page, title: it.title, kind: it.kind });
+    const nb = next.querySelector('button');
+    nb.onclick = () => { pos++; show(); };
+    box.addEventListener('recall:graded', () => { nb.textContent = 'Next card →'; nb.className = 'btn'; stats(); });
+  }
+
+  document.getElementById('filter').addEventListener('click', e => {
+    const f = e.target.dataset.f; if (!f) return;
+    filter = f;
+    e.currentTarget.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === e.target));
+    build();
+  });
+  shuffle.addEventListener('change', build);
+  document.getElementById('reset').addEventListener('click', () => {
+    if (!confirm('Delete every saved grade? This cannot be undone.')) return;
+    R.save({ items: {} }); stats(); build();
+  });
+
+  stats(); build();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Segmentation</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/quiz.js" defer></script>
+<script src="../assets/translator.js" defer></script>
+<script src="../assets/recall.js" defer></script>
+<style>
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">← Course map</a><span>Lesson 13 of 13 · OSTEP Ch 16 · ~20 min</span></nav>
+
+<p class="kicker">Lesson 13 · Memory virtualization</p>
+<h1>Segmentation: a base and bounds for every piece</h1>
+<p class="lede">Instead of moving the whole address space as one block, move code, heap and stack separately. The empty gap between them no longer costs any physical memory.</p>
+
+<div class="box key"><span class="tag">The one-sentence version</span>
+<strong>Segmentation</strong> gives each logical <strong>segment</strong> (code, heap, stack) its own base and bounds (size) pair. The top bits of a virtual address say <em>which</em> segment, the rest is the <strong>offset</strong> inside it, and physical = base[segment] + offset, after a bounds check.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-segmentation.pdf">OSTEP §16.1</a></div>
+
+<div class="warmup">
+<div class="rc"><p class="q">Lesson 12: Base = 44 KB and bounds = 5 KB (bounds = size). Translate virtual address 5,000, then 5,200.</p><div class="a">Bounds = 5 × 1024 = 5,120; base = 44 × 1024 = 45,056.<br>VA 5,000: 5,000 &lt; 5,120 ✓ → PA = 45,056 + 5,000 = <strong>50,056</strong>.<br>VA 5,200: 5,200 ≥ 5,120 → <strong>fault</strong> (out-of-bounds exception).</div></div>
+<div class="rc"><p class="q">Lesson 5: STCF (shortest time-to-completion first). A arrives at 0 needing 8 units; B arrives at 2 needing 3. Draw the schedule and give the average turnaround time.</p><div class="a">At t = 2, B (3 left) beats A (6 left), so B preempts. Schedule: <strong>A 0–2, B 2–5, A 5–11</strong>.<br>Turnaround: A = 11 − 0 = 11, B = 5 − 2 = 3. Average = <strong>7</strong>. (Both response times are 0.)</div></div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Why: the free gap is real memory</h2>
+<p>With one base and bounds (Lesson 12), the "big chunk of free" between heap and stack "is not an illusion, it does take up physical memory".<span class="cite">Bilal slides, Ch 16</span> A <strong>segment</strong> is simply a <em>contiguous portion of the address space of a particular length</em>. Bilal lists four: code, data, heap and stack. OSTEP and the quizzes use three: code, heap and stack. Place each one independently, and the gap needs nothing.</p>
+
+<figure>
+<svg viewBox="0 0 600 300" role="img" aria-label="A 16 KB address space with code, heap and stack mapped separately into physical memory; the free gap is not mapped">
+  <defs><marker id="b1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="var(--ink-2)"/></marker></defs>
+  <text x="110" y="16" text-anchor="middle" class="fig-ink2" font-size="12" font-weight="600">VIRTUAL (16 KB)</text>
+  <rect x="50" y="30" width="120" height="30" fill="var(--s1)"/><text x="110" y="50" text-anchor="middle" fill="#fff" font-size="12">Code 2K</text>
+  <rect x="50" y="90" width="120" height="30" fill="var(--s3)"/><text x="110" y="110" text-anchor="middle" fill="#fff" font-size="12">Heap 2K ↓</text>
+  <rect x="50" y="60" width="120" height="30" class="fig-surface"/>
+  <rect x="50" y="120" width="120" height="120" class="fig-surface2"/><text x="110" y="185" text-anchor="middle" class="fig-ink2" font-size="12">(free, unmapped)</text>
+  <rect x="50" y="240" width="120" height="30" fill="var(--s2)"/><text x="110" y="260" text-anchor="middle" fill="#fff" font-size="12">Stack 2K ↑</text>
+  <text x="44" y="34" text-anchor="end" class="fig-ink2" font-size="11">0</text>
+  <text x="44" y="94" text-anchor="end" class="fig-ink2" font-size="11">4 KB</text>
+  <text x="44" y="244" text-anchor="end" class="fig-ink2" font-size="11">14 KB</text>
+  <text x="44" y="274" text-anchor="end" class="fig-ink2" font-size="11">16 KB</text>
+
+  <text x="470" y="16" text-anchor="middle" class="fig-ink2" font-size="12" font-weight="600">PHYSICAL (64 KB)</text>
+  <rect x="410" y="30" width="120" height="60" class="fig-surface"/><text x="470" y="64" text-anchor="middle" class="fig-ink" font-size="12">OS</text>
+  <rect x="410" y="90" width="120" height="180" class="fig-surface2"/>
+  <rect x="410" y="135" width="120" height="15" fill="var(--s2)"/><text x="470" y="146" text-anchor="middle" fill="#fff" font-size="10">Stack 26–28K</text>
+  <rect x="410" y="165" width="120" height="15" fill="var(--s1)"/><text x="470" y="176" text-anchor="middle" fill="#fff" font-size="10">Code 32–34K</text>
+  <rect x="410" y="180" width="120" height="15" fill="var(--s3)"/><text x="470" y="191" text-anchor="middle" fill="#fff" font-size="10">Heap 34–36K</text>
+  <text x="536" y="34" class="fig-ink2" font-size="11">0</text><text x="536" y="94" class="fig-ink2" font-size="11">16 KB</text><text x="536" y="274" class="fig-ink2" font-size="11">64 KB</text>
+  <path d="M172 45 C 290 45, 300 172, 406 172" fill="none" stroke="var(--s1)" stroke-width="1.5" marker-end="url(#b1)"/>
+  <path d="M172 105 C 290 105, 300 187, 406 187" fill="none" stroke="var(--s3)" stroke-width="1.5" marker-end="url(#b1)"/>
+  <path d="M172 255 C 290 255, 300 142, 406 142" fill="none" stroke="var(--s2)" stroke-width="1.5" marker-end="url(#b1)"/>
+</svg>
+<figcaption>Only the three used pieces take physical memory (6 KB, not 16 KB). Note that the stack can even sit <em>below</em> the code. (Bilal's slide example; physical side not to scale.)</figcaption>
+</figure>
+
+<h3>The segment table</h3>
+<p>The MMU now holds one (base, size) pair per segment. The <strong>size</strong> column is exactly the old bounds register. "3 segments require 3 (base, size) pairs."<span class="cite">Bilal slides, Ch 16</span></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Segment</th><th class="r">Base</th><th class="r">Size</th></tr></thead>
+<tbody>
+<tr><td>Code</td><td class="r">32K</td><td class="r">2K</td></tr>
+<tr><td>Heap</td><td class="r">34K</td><td class="r">2K</td></tr>
+<tr><td>Stack</td><td class="r">28K</td><td class="r">2K</td></tr>
+</tbody></table></div>
+
+<h3>Translating when you know the segment</h3>
+<p>The key move: the <strong>offset</strong> is the distance from the <em>start of that segment in the virtual address space</em>, not from 0.<span class="cite">Bilal slides, Ch 16</span></p>
+<ol class="steps">
+<li><strong>Code, VA 100.</strong> Code starts at virtual 0, so offset = 100. PA = 32K + 100 = 32,768 + 100 = <strong>32,868</strong>.</li>
+<li><strong>Heap, VA 4200.</strong> Heap starts at virtual 4 KB, so offset = 4200 − 4096 = 104. PA = 34K + 104 = 34,816 + 104 = <strong>34,920</strong>.</li>
+<li><strong>Heap, VA 7 KB.</strong> The heap only runs from 4 KB to 6 KB, so 7 KB is past its end. The hardware detects this and raises a <strong>segmentation fault</strong>, the name for any access to an illegal address.</li>
+</ol>
+<div class="box trap"><span class="tag">Trap</span>
+Adding the base to the <em>whole</em> VA (34,816 + 4,200) is the #1 mistake. Always subtract the segment's virtual start first. The bit trick below does that subtraction for you.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">What is a segment, and why does segmentation save physical memory compared with a single base and bounds?</p><div class="a">A segment is a <strong>contiguous portion of the address space of a particular length</strong> (code, heap, stack). Each gets its <strong>own base and size</strong>, so each is placed separately and the <strong>free gap between heap and stack needs no physical memory</strong>.</div></div>
+<div class="rc"><p class="q">Code is at virtual 0 (base 20 KB, size 2 KB). The heap starts at virtual 4 KB with base 10 KB and size 3 KB. Translate heap address VA 4,500.</p><div class="a">Offset from the <em>start of the heap's virtual range</em>: 4,500 − 4,096 = 404. Check 404 &lt; 3,072 ✓. PA = 10 × 1024 + 404 = 10,240 + 404 = <strong>10,644</strong>. (Adding base to the whole VA, 10,240 + 4,500, is the classic mistake.)</div></div>
+<div class="close">
+  <p class="q">Code: virtual 0–4 KB, physical base 20 KB, size 2 KB. Heap: virtual 4–8 KB, physical base 46 KB, size 3 KB, grows up. Which translation of heap address VA 5,000 is TRUE?</p>
+  <ul>
+  <li data-true>Offset = 5,000 − 4,096 = 904 &lt; 3,072, so PA = 47,104 + 904 = 48,008. <span class="why">Offset is measured from the heap's virtual start (4 KB). Check against the heap's size, then add the heap's base (46 × 1024).</span></li>
+  <li>Offset = 5,000 &lt; 8,192, so PA = 47,104 + 5,000 = 52,104. <span class="why">Adding base to the <strong>whole</strong> VA is the #1 slip. Subtract the heap's virtual start first: offset = <strong>904</strong>.</span></li>
+  <li>Offset = 5,000 − 4,096 = 904 &lt; 3,072, so PA = 20,480 + 904 = 21,384. <span class="why">20 KB is the <strong>code</strong> segment's base. VA 5,000 is in the heap, so add the <strong>heap's</strong> base, 47,104.</span></li>
+  <li>Offset = 5,000 − 4,096 = 904 &lt; 3,072, so PA = 47,104 − 904 = 46,200. <span class="why">The heap grows up, so you <strong>add</strong> the offset: 47,104 + 904 = 48,008.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Which segment? The explicit approach</h2>
+<p>A 16 KB address space has 16,384 = 2<sup>14</sup> bytes, so addresses are <strong>14 bits</strong>. The <strong>explicit approach</strong> chops the address space up using the <strong>top few bits</strong>: the top 2 bits select the segment, and the low 12 bits are the offset.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-segmentation.pdf">OSTEP §16.2</a></p>
+
+<figure>
+<svg viewBox="0 0 600 150" role="img" aria-label="14-bit virtual address 4200: bits 13-12 are 01 (segment heap), bits 11-0 are 000001101000 (offset 104)">
+  <g font-family="var(--mono)" font-size="13" font-weight="600" text-anchor="middle">
+    <rect x="20" y="40" width="36" height="36" rx="4" fill="var(--accent)"/><text x="38" y="64" fill="#fff">0</text>
+    <rect x="58" y="40" width="36" height="36" rx="4" fill="var(--accent)"/><text x="76" y="64" fill="#fff">1</text>
+    <rect x="110" y="40" width="36" height="36" rx="4" class="fig-surface2"/><text x="128" y="64" class="fig-ink">0</text>
+    <rect x="148" y="40" width="36" height="36" rx="4" class="fig-surface2"/><text x="166" y="64" class="fig-ink">0</text>
+    <rect x="186" y="40" width="36" height="36" rx="4" class="fig-surface2"/><text x="204" y="64" class="fig-ink">0</text>
+    <rect x="224" y="40" width="36" height="36" rx="4" class="fig-surface2"/><text x="242" y="64" class="fig-ink">0</text>
+    <rect x="262" y="40" width="36" height="36" rx="4" class="fig-surface2"/><text x="280" y="64" class="fig-ink">0</text>
+    <rect x="300" y="40" width="36" height="36" rx="4" class="fig-surface2"/><text x="318" y="64" class="fig-ink">1</text>
+    <rect x="338" y="40" width="36" height="36" rx="4" class="fig-surface2"/><text x="356" y="64" class="fig-ink">1</text>
+    <rect x="376" y="40" width="36" height="36" rx="4" class="fig-surface2"/><text x="394" y="64" class="fig-ink">0</text>
+    <rect x="414" y="40" width="36" height="36" rx="4" class="fig-surface2"/><text x="432" y="64" class="fig-ink">1</text>
+    <rect x="452" y="40" width="36" height="36" rx="4" class="fig-surface2"/><text x="470" y="64" class="fig-ink">0</text>
+    <rect x="490" y="40" width="36" height="36" rx="4" class="fig-surface2"/><text x="508" y="64" class="fig-ink">0</text>
+    <rect x="528" y="40" width="36" height="36" rx="4" class="fig-surface2"/><text x="546" y="64" class="fig-ink">0</text>
+  </g>
+  <g font-size="10" text-anchor="middle" class="fig-muted">
+    <text x="38" y="32">13</text><text x="76" y="32">12</text><text x="128" y="32">11</text><text x="166" y="32">10</text><text x="204" y="32">9</text><text x="242" y="32">8</text><text x="280" y="32">7</text><text x="318" y="32">6</text><text x="356" y="32">5</text><text x="394" y="32">4</text><text x="432" y="32">3</text><text x="470" y="32">2</text><text x="508" y="32">1</text><text x="546" y="32">0</text>
+  </g>
+  <path d="M20 86 v6 h74 v-6" fill="none" stroke="var(--accent)"/>
+  <text x="57" y="108" text-anchor="middle" fill="var(--accent)" font-size="12" font-weight="600">segment</text>
+  <text x="57" y="124" text-anchor="middle" fill="var(--accent)" font-size="11">01 = Heap</text>
+  <path d="M110 86 v6 h454 v-6" fill="none" class="fig-line"/>
+  <text x="337" y="108" text-anchor="middle" class="fig-ink" font-size="12" font-weight="600">offset (12 bits)</text>
+  <text x="337" y="124" text-anchor="middle" class="fig-ink2" font-size="11">000001101000₂ = 0x068 = 104</text>
+  <text x="300" y="146" text-anchor="middle" class="fig-ink2" font-size="11">Physical = Heap base 34 KB + 104 = 34,920 (same answer as before, with no subtraction)</text>
+</svg>
+<figcaption>Virtual address 4200 as 14 bits. The top 2 bits pick the row of the segment table; the low 12 bits are already the offset.</figcaption>
+</figure>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Top bits</th><th>Segment (OSTEP, Quiz 6)</th><th>Virtual range (16 KB space)</th></tr></thead>
+<tbody>
+<tr><td><code>00</code></td><td>Code</td><td>0 – 4 KB</td></tr>
+<tr><td><code>01</code></td><td>Heap</td><td>4 KB – 8 KB</td></tr>
+<tr><td><code>10</code></td><td>(unused)</td><td>8 KB – 12 KB</td></tr>
+<tr><td><code>11</code></td><td>Stack</td><td>12 KB – 16 KB</td></tr>
+</tbody></table></div>
+<div class="box exam"><span class="tag">Exam: which bits mean stack?</span>
+Bilal's selector table lists <code>10</code> = Stack and <code>11</code> = unused. But his own stack example (VA 15 KB = <code>11</code> 1100 0000 0000) uses <code>11</code>, as OSTEP, Zafar's slides and Quiz 6 do. <strong>Always use the table given in the question.</strong> If none is given, use 00 code, 01 heap, 11 stack.</div>
+
+<h3>Counting with bits: the powers of 2 you need</h3>
+<p>With <em>s</em> selector bits and <em>n</em> offset bits (s + n = address bits):</p>
+<div class="box key"><span class="tag">Two formulas</span>
+<strong>Number of segments = 2<sup>s</sup></strong> &nbsp;·&nbsp; <strong>Max segment size = 2<sup>n</sup> bytes</strong></div>
+<div class="table-wrap"><table>
+<thead><tr><th>2<sup>k</sup></th><th>Value</th><th>2<sup>k</sup></th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>2<sup>10</sup></td><td>1 KB (1,024)</td><td>2<sup>20</sup></td><td>1 MB</td></tr>
+<tr><td>2<sup>11</sup></td><td>2 KB</td><td>2<sup>24</sup></td><td>16 MB</td></tr>
+<tr><td>2<sup>12</sup></td><td>4 KB (4,096)</td><td>2<sup>28</sup></td><td>256 MB</td></tr>
+<tr><td>2<sup>13</sup></td><td>8 KB</td><td>2<sup>29</sup></td><td>512 MB</td></tr>
+<tr><td>2<sup>14</sup></td><td>16 KB (16,384)</td><td>2<sup>30</sup></td><td>1 GB</td></tr>
+<tr><td>2<sup>16</sup></td><td>64 KB</td><td>2<sup>32</sup></td><td>4 GB</td></tr>
+</tbody></table></div>
+<p><strong>Rule of thumb:</strong> 2<sup>10k + r</sup> = 2<sup>r</sup> × (KB, MB, GB for k = 1, 2, 3). So 2<sup>29</sup> = 2<sup>9</sup> MB = 512 MB, and 2<sup>15</sup> = 2<sup>5</sup> KB = 32 KB.</p>
+<p><strong>Example.</strong> A 32-bit address with a 3-bit selector has 2<sup>3</sup> = <strong>8 segments</strong>. That leaves 29 offset bits, so the max segment size is 2<sup>29</sup> = <strong>512 MB</strong>. In the 14-bit example: 2<sup>2</sup> = 4 segments, each at most 2<sup>12</sup> = 4 KB.</p>
+<p>The explicit approach costs you two things (Zafar's slides). One selector value is <strong>wasted</strong> when there are only 3 segments, and no segment can grow past the <strong>max size</strong> (4 KB here), even if memory is free.</p>
+
+<h3>Decimal → binary, then split</h3>
+<p>Take VA = <strong>5300</strong> in our 14-bit system. Subtract the biggest powers of 2 that fit:</p>
+<p style="font-family:var(--mono);font-size:.85rem">5300 = 4096 + 1024 + 128 + 32 + 16 + 4<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= 2<sup>12</sup> + 2<sup>10</sup> + 2<sup>7</sup> + 2<sup>5</sup> + 2<sup>4</sup> + 2<sup>2</sup><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= <span class="hl">01</span> 0100 1011 0100 (14 bits; put a 1 at bits 12, 10, 7, 5, 4, 2)</p>
+<p>Segment = <code>01</code> (heap). Offset = <code>0100 1011 0100</code> = 1024 + 128 + 32 + 16 + 4 = <strong>1204</strong>.</p>
+<div class="box key"><span class="tag">Shortcut to check yourself</span>
+Splitting the bits is the same as dividing by the max segment size: <strong>segment = ⌊VA / 2<sup>n</sup>⌋</strong>, <strong>offset = VA mod 2<sup>n</sup></strong>. Here 5300 / 4096 = 1 remainder 1204. Equivalently, offset = VA − (start of that segment's virtual range) = 5300 − 4096. That's the "range" method the Quiz 6 solution uses.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">A system has 24-bit virtual addresses, and the top 3 bits select the segment. How many segments, and what is the maximum segment size?</p><div class="a">Segments = 2<sup>3</sup> = <strong>8</strong>. Offset bits = 24 − 3 = 21, so max size = 2<sup>21</sup> = 2 × 2<sup>20</sup> = <strong>2 MB</strong>.</div></div>
+<div class="rc"><p class="q">In a 14-bit system with 2 selector bits (00 code, 01 heap, 11 stack), write VA 6,000 in binary and split it into segment and offset.</p><div class="a">6,000 = 4096 + 1024 + 512 + 256 + 64 + 32 + 16 = 2<sup>12</sup> + 2<sup>10</sup> + 2<sup>9</sup> + 2<sup>8</sup> + 2<sup>6</sup> + 2<sup>5</sup> + 2<sup>4</sup><br>→ <code>01 0111 0111 0000</code>.<br>Segment = <code>01</code> = <strong>heap</strong>. Offset = <code>0111 0111 0000</code> = <strong>1,904</strong> (check: 6,000 − 4,096 = 1,904).</div></div>
+<div class="close">
+  <p class="q">14-bit virtual addresses; the top 2 bits select the segment: <code>00</code> code, <code>01</code> heap, <code>10</code> unused, <code>11</code> stack. Which statement is TRUE?</p>
+  <ul>
+  <li data-true>Heap addresses are 4,096–8,191 and stack addresses are 12,288–16,383. <span class="why">Each selector value owns a 4 KB (4,096-byte) slice: 01 → 4 KB–8 KB, 11 → 12 KB–16 KB.</span></li>
+  <li>Heap addresses are 4,096–8,191 and stack addresses are 8,192–12,287. <span class="why">8 KB–12 KB is selector <code>10</code>, unused in this table. Stack is <code>11</code>: <strong>12,288–16,383</strong>.</span></li>
+  <li>Heap addresses are 4,000–7,999 and stack addresses are 12,000–15,999. <span class="why">KB means <strong>1024</strong>: heap 4,096–8,191, stack 12,288–16,383.</span></li>
+  <li>Heap addresses are 0–4,095 and stack addresses are 12,288–16,383. <span class="why">0–4,095 is selector <code>00</code>, the <strong>code</strong>. The heap (<code>01</code>) is 4,096–8,191.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">A 32-bit virtual address uses its top 4 bits as the segment selector. Which is TRUE?</p>
+  <ul>
+  <li data-true>There can be 16 segments, each at most 2<sup>28</sup> bytes = 256 MB. <span class="why">Segments = 2<sup>s</sup> = 2<sup>4</sup> = 16. Offset bits n = 32 − 4 = 28, so max size = 2<sup>28</sup> = 2<sup>8</sup> MB = 256 MB.</span></li>
+  <li>There can be 4 segments, each at most 2<sup>28</sup> bytes = 256 MB. <span class="why">4 is the number of selector <em>bits</em>. Segments = 2<sup>4</sup> = <strong>16</strong>.</span></li>
+  <li>There can be 16 segments, each at most 2<sup>28</sup> bytes = 512 MB. <span class="why">2<sup>28</sup> = 2<sup>8</sup> × 2<sup>20</sup> = <strong>256 MB</strong>. (512 MB is 2<sup>29</sup>.)</span></li>
+  <li>There can be 16 segments, each at most 2<sup>32</sup> bytes = 4 GB. <span class="why">Only the <strong>28 offset bits</strong> address bytes inside a segment: max size = 2<sup>28</sup> = 256 MB.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>The hardware's code: SEG_MASK, SEG_SHIFT, OFFSET_MASK</h2>
+<pre><code>// get top 2 bits of 14-bit VA
+Segment = (VirtualAddress &amp; SEG_MASK) &gt;&gt; SEG_SHIFT
+// now get offset
+Offset  = VirtualAddress &amp; OFFSET_MASK
+if (Offset &gt;= Bounds[Segment])
+    RaiseException(PROTECTION_FAULT)
+else
+    PhysAddr = Base[Segment] + Offset
+    Register = AccessMemory(PhysAddr)</code></pre>
+<p class="small">With SEG_MASK = 0x3000 (<code>11 0000 0000 0000</code>), SEG_SHIFT = 12, OFFSET_MASK = 0xFFF (<code>00 1111 1111 1111</code>).<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-segmentation.pdf">OSTEP §16.2</a><span class="cite">Bilal slides, Ch 16</span></p>
+
+<p>Step through VA 5300:</p>
+<div class="table-wrap"><table>
+<tbody>
+<tr><td>VA</td><td><code>01 0100 1011 0100</code></td><td class="r">5300</td></tr>
+<tr><td>&amp; SEG_MASK</td><td><code>11 0000 0000 0000</code></td><td class="r">0x3000</td></tr>
+<tr><td>=</td><td><code>01 0000 0000 0000</code></td><td class="r">4096 ← not "1" yet!</td></tr>
+<tr><td>&gt;&gt; SEG_SHIFT (12)</td><td><code>01</code></td><td class="r"><strong>1 → Heap</strong></td></tr>
+<tr><td>VA &amp; OFFSET_MASK</td><td><code>00 0100 1011 0100</code></td><td class="r"><strong>1204</strong></td></tr>
+</tbody></table></div>
+
+<div class="box exam"><span class="tag">Exam: why is the shift needed?</span>
+Masking only <em>zeroes out</em> the offset bits. The segment bits stay in their high positions (bits 13–12), so the result is 4096, not 1. Shifting right by SEG_SHIFT moves them down to the lowest bits, giving a small number (0–3) that can index the <code>Base[]</code> and <code>Bounds[]</code> arrays.</div>
+
+<p><strong>General recipe</strong> for s selector bits and n offset bits: SEG_SHIFT = n; OFFSET_MASK = 2<sup>n</sup> − 1 (n ones); SEG_MASK = s ones followed by n zeros. For example, a 32-bit address with 2 selector bits gives SEG_SHIFT = 30, OFFSET_MASK = 0x3FFFFFFF, SEG_MASK = 0xC0000000.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">14-bit VA, SEG_MASK = 0x3000, SEG_SHIFT = 12, OFFSET_MASK = 0xFFF. For VA 13,500, give <code>VA &amp; SEG_MASK</code>, the segment number after the shift, and the offset.</p><div class="a">13,500 = <code>11 0100 1011 1100</code>.<br>VA &amp; SEG_MASK = <code>11 0000 0000 0000</code> = <strong>12,288</strong> (0x3000), not yet an index.<br>&gt;&gt; 12 → <code>11</code> = <strong>3 → stack</strong>.<br>VA &amp; OFFSET_MASK = <code>0100 1011 1100</code> = 0x4BC = <strong>1,212</strong> (check: 13,500 − 12,288).</div></div>
+<div class="rc"><p class="q">A 16-bit virtual address uses the top 2 bits as the segment selector. Give SEG_SHIFT, OFFSET_MASK and SEG_MASK (in hex).</p><div class="a">Offset bits n = 14. <strong>SEG_SHIFT = 14</strong>. <strong>OFFSET_MASK = 0x3FFF</strong> (14 ones). <strong>SEG_MASK = 0xC000</strong> (<code>11</code> followed by 14 zeros).</div></div>
+<div class="close">
+  <p class="q">14-bit virtual addresses with a 2-bit segment selector at the top. Which set of constants is TRUE?</p>
+  <ul>
+  <li data-true>SEG_MASK = 0x3000, SEG_SHIFT = 12, OFFSET_MASK = 0xFFF. <span class="why">SEG_MASK = <code>11 0000 0000 0000</code> (bits 13–12); shift by the 12 offset bits; OFFSET_MASK = 12 ones.</span></li>
+  <li>SEG_MASK = 0x3000, SEG_SHIFT = 2, OFFSET_MASK = 0xFFF. <span class="why">Shift by the number of <strong>offset</strong> bits (12), not selector bits, to bring bits 13–12 down to the bottom.</span></li>
+  <li>SEG_MASK = 0xC000, SEG_SHIFT = 12, OFFSET_MASK = 0xFFF. <span class="why">0xC000 is the top 2 bits of a <strong>16</strong>-bit address. For 14 bits the top two are bits 13–12: <strong>0x3000</strong>.</span></li>
+  <li>SEG_MASK = 0x3000, SEG_SHIFT = 12, OFFSET_MASK = 0x3FFF. <span class="why">0x3FFF is all 14 bits. The offset is only the low 12 bits: <strong>0xFFF</strong>.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">14-bit VA 7,000 with SEG_MASK = 0x3000, SEG_SHIFT = 12, OFFSET_MASK = 0xFFF. Which is TRUE?</p>
+  <ul>
+  <li data-true>VA &amp; SEG_MASK = 4,096; shifting right by 12 gives segment 1; VA &amp; OFFSET_MASK = 2,904. <span class="why">7,000 = <code>01 1011 0101 1000</code>. Masking keeps <code>01</code> in bits 13–12 (= 4,096); the shift brings it down to 1. Offset = 7,000 − 4,096.</span></li>
+  <li>VA &amp; SEG_MASK = 1, which is already the segment number; VA &amp; OFFSET_MASK = 2,904. <span class="why">Masking only zeroes the other bits; the selector stays in its high position, so the result is <strong>4,096</strong>. The <strong>shift</strong> turns it into 1.</span></li>
+  <li>VA &amp; SEG_MASK = 4,096; shifting right by 12 gives segment 1; VA &amp; OFFSET_MASK = 7,000. <span class="why">OFFSET_MASK strips the selector bits: 7,000 &amp; 0xFFF = <strong>2,904</strong>.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Heap translation (grows up)</h2>
+<p>For the rest of the lesson we'll use this segment table (14-bit VA, 2 selector bits, so the max segment size is 4 KB = 4096):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Segment</th><th>Bits</th><th>Virtual range</th><th class="r">Base</th><th class="r">Size</th><th>Grows +?</th></tr></thead>
+<tbody>
+<tr><td>Code</td><td><code>00</code></td><td>0 – 4 KB</td><td class="r">40 KB</td><td class="r">2 KB</td><td>1</td></tr>
+<tr><td>Heap</td><td><code>01</code></td><td>4 – 8 KB</td><td class="r">24 KB</td><td class="r">3 KB</td><td>1</td></tr>
+<tr><td>Stack</td><td><code>11</code></td><td>12 – 16 KB</td><td class="r">52 KB</td><td class="r">3 KB</td><td>0</td></tr>
+</tbody></table></div>
+<ol class="steps">
+<li><strong>VA 5300</strong>: in 4–8 KB, so Heap. Offset = 5300 − 4096 = 1204. Check 1204 &lt; 3072 (3 KB) ✓. PA = 24 KB + 1204 = 24,576 + 1,204 = <strong>25,780</strong>.</li>
+<li><strong>VA 7600</strong>: Heap, offset = 7600 − 4096 = 3504. Check 3504 &lt; 3072? <strong>No → segmentation fault.</strong> The address is inside the heap's 4 KB <em>slot</em>, but beyond its current <em>size</em>.</li>
+<li><strong>VA 9000</strong>: top bits <code>10</code>, which is unused, so it <strong>faults</strong>.</li>
+</ol>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">14-bit VA, top 2 bits select the segment (01 = heap, 10 unused), max segment size 4 KB. Heap: virtual range 4–8 KB, physical base 18 KB, size 2 KB, grows up. Translate VA 4,900 and VA 6,500.</p><div class="a">VA 4,900: heap, offset = 4,900 − 4,096 = 804. Check 804 &lt; 2,048 ✓. PA = 18,432 + 804 = <strong>19,236</strong>.<br>VA 6,500: heap, offset = 6,500 − 4,096 = 2,404. 2,404 ≥ 2,048 → <strong>segmentation fault</strong> (inside the heap's 4 KB slot, but past its current size).</div></div>
+<div class="rc"><p class="q">Same layout (selector 10 is unused). What happens on an access to VA 10,000?</p><div class="a">10,000 = <code>10 0111 0001 0000</code>, so the selector is <code>10</code>, which maps to no segment → <strong>segmentation fault</strong>.</div></div>
+<div class="close">
+  <p class="q">14-bit VA, top 2 bits select the segment, max segment size 4 KB. Heap: selector <code>01</code>, virtual 4–8 KB, base 30 KB, size 2 KB, grows up. Which translation of VA 6,300 is TRUE?</p>
+  <ul>
+  <li data-true>Offset = 6,300 − 4,096 = 2,204, which is not &lt; 2,048 (the heap's size), so it is a segmentation fault. <span class="why">The address is inside the heap's 4 KB slot but past its current 2 KB size.</span></li>
+  <li>Offset = 6,300 − 4,096 = 2,204 &lt; 4,096 (the max segment size), so PA = 30,720 + 2,204 = 32,924. <span class="why">Check against the segment's <strong>actual size</strong> (2,048), not the 4 KB slot. 2,204 ≥ 2,048 → fault.</span></li>
+  <li>The VA lies in the heap's range 4–8 KB, so it is legal and PA = 30,720 + 6,300 = 37,020. <span class="why">Strip the selector bits first: offset = <strong>2,204</strong>, which is past the 2 KB size → fault.</span></li>
+  <li>Offset = 6,300 − 4,096 = 2,204, which is not &lt; 2,048, so the hardware grows the heap and PA = 32,924. <span class="why">The hardware never grows a segment: it <strong>faults</strong>. The heap grows only when malloc asks the OS (sbrk).</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Stack translation (grows down)</h2>
+<p>The stack grows <strong>backwards</strong>, toward lower addresses. So the hardware needs one more bit per segment: <strong>grows positive?</strong> (1 = up, 0 = down). For the stack, <strong>base is the top</strong> (the high end) of its physical region, and it extends <em>downward</em> by size.<span class="cite">Bilal slides, Ch 16</span></p>
+
+<figure>
+<svg viewBox="0 0 600 170" role="img" aria-label="Stack segment: base at the top of its physical region; addresses below base down to base minus size are valid">
+  <rect x="200" y="20" width="200" height="30" class="fig-surface2"/><text x="300" y="40" text-anchor="middle" class="fig-ink2" font-size="12">(not in use)</text>
+  <rect x="200" y="50" width="200" height="70" fill="var(--s2)"/>
+  <text x="300" y="82" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">Stack (size 3 KB)</text>
+  <text x="300" y="100" text-anchor="middle" fill="#fff" font-size="11">grows ↓ toward lower addresses</text>
+  <rect x="200" y="120" width="200" height="30" class="fig-surface2"/><text x="300" y="140" text-anchor="middle" class="fig-ink2" font-size="12">(not in use)</text>
+  <text x="408" y="54" class="fig-ink" font-size="12" font-weight="600">52 KB = base (top)</text>
+  <text x="408" y="124" class="fig-ink2" font-size="12">49 KB = base − size</text>
+  <text x="192" y="54" text-anchor="end" class="fig-ink2" font-size="11">higher addresses ↑</text>
+  <text x="192" y="124" text-anchor="end" class="fig-ink2" font-size="11">PA = base + (negative offset)</text>
+</svg>
+<figcaption>Valid stack addresses lie between base − size and base. A "negative offset" counts down from base.</figcaption>
+</figure>
+
+<h3>The recipe (OSTEP and Quiz 6 convention)</h3>
+<ol class="steps">
+<li><strong>Offset</strong> = VA − start of the stack's virtual range (or: the low n bits).</li>
+<li><strong>Negative offset</strong> = offset − <strong>max segment size</strong> (2<sup>n</sup>, here 4096). This is how far below the top of the 4 KB slot the address is.</li>
+<li><strong>Check</strong>: |negative offset| ≤ size. Otherwise, segmentation fault.</li>
+<li><strong>PA</strong> = base + negative offset.</li>
+</ol>
+<p><strong>VA 14000</strong>: top bits <code>11</code>, so Stack. Offset = 14000 − 12288 = 1712. Negative offset = 1712 − 4096 = <strong>−2384</strong>. |−2384| ≤ 3072 ✓. PA = 53,248 + (−2,384) = <strong>50,864</strong>.</p>
+<p><strong>VA 12500</strong>: offset = 212. Negative offset = 212 − 4096 = −3884. |−3884| &gt; 3072, so <strong>segmentation fault</strong>. It's too far below the top of the stack.</p>
+
+<div class="box exam"><span class="tag">Bilal's way gives the same answer</span>
+Bilal's slide: VA 15 KB, stack base 28 KB, size 2 KB. He computes 16 KB − 15 KB = 1 KB (the distance from the <em>top of the virtual space</em>), then PA = 28 KB − 1 KB = <strong>27 KB</strong>. OSTEP's way: offset = 3 KB, negative offset = 3 KB − 4 KB = −1 KB, PA = 28 KB + (−1 KB) = 27 KB. Both are "base minus distance from the top". In a quiz, <strong>write it the Quiz 6 way</strong>: offset → offset − max segment size → |neg| ≤ size check → base + neg. Showing the bounds check earns marks.</div>
+
+<div class="box trap"><span class="tag">Traps</span>
+(1) Subtract the <strong>max segment size</strong> (2<sup>n</sup> = 4096), <em>not</em> the stack's actual size (3 KB). (2) The bounds check uses the <strong>absolute value</strong> against the actual size. (3) In your Lab 6 <code>mmu_segmented.c</code> the stack offset was <em>already</em> measured downward from base (<code>PA = base − offset</code>). Exam questions give a raw VA, so convert first.</div>
+
+<div data-seg='{"vaBits":14,"selBits":2,"va":"14000","segments":[{"sel":"00","name":"Code","base":"40KB","size":"2KB","grows":"+","prot":"R-X"},{"sel":"01","name":"Heap","base":"24KB","size":"3KB","grows":"+","prot":"RW-"},{"sel":"11","name":"Stack","base":"52KB","size":"3KB","grows":"-","prot":"RW-"}]}'></div>
+<p class="small">Try 5300, 7600, 9000, 12500, and 1000 with access = write (code is read-execute only). You can also edit the base and size cells. Hex (0x3A98) and binary (0b…) inputs work too.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">14-bit virtual addresses, top 2 bits select the segment (11 = stack), 12-bit offset, so the max segment size is 4 KB (4,096). Stack: physical base 40 KB, size 2 KB, grows down. Translate VA 15,200.</p><div class="a">Top bits <code>11</code> → stack. Offset = 15,200 − 12,288 = 2,912.<br>Negative offset = 2,912 − 4,096 = <strong>−1,184</strong>.<br>Check |−1,184| ≤ 2,048 ✓.<br>PA = 40,960 + (−1,184) = <strong>39,776</strong>. (Bilal's way: 16,384 − 15,200 = 1,184; 40 KB − 1,184 = 39,776.)</div></div>
+<div class="rc"><p class="q">14-bit virtual addresses, top 2 bits select the segment (11 = stack), 12-bit offset, so the max segment size is 4 KB (4,096). Stack: physical base 40 KB, size 2 KB, grows down. Translate VA 13,800.</p><div class="a">Stack. Offset = 13,800 − 12,288 = 1,512. Negative offset = 1,512 − 4,096 = −2,584. Check |−2,584| ≤ 2,048? <strong>No</strong> → <strong>segmentation fault</strong>: it's further below the top of the stack than the stack's size. (38,376 is what you'd get by skipping the check.)</div></div>
+<div class="rc"><p class="q">Same stack (base 40 KB, size 2 KB, max segment size 4 KB). Where does the very last virtual address, 16,383, land? What does that tell you about the stack's base?</p><div class="a">Offset = 4,095; negative offset = 4,095 − 4,096 = −1; PA = 40,960 − 1 = <strong>40,959</strong>. The stack's <strong>base is its top</strong> (high end): its bytes sit just <em>below</em> base, from base − size up to base − 1. That's why you subtract the <strong>max segment size</strong>, not the stack's actual size.</div></div>
+<div class="close">
+  <p class="q">14-bit VA, top 2 bits select the segment (<code>11</code> = stack), 12-bit offset, so the max segment size is 4,096. Stack: virtual 12–16 KB, physical base 36 KB, size 3 KB, grows down. Which translation of VA 14,500 is TRUE?</p>
+  <ul>
+  <li data-true>Offset 2,212; negative offset 2,212 − 4,096 = −1,884; |−1,884| ≤ 3,072, so PA = 36,864 − 1,884 = 34,980. <span class="why">Offset = 14,500 − 12,288. Subtract the <strong>max segment size</strong>, check against the actual size, then PA = base + negative offset.</span></li>
+  <li>Offset 2,212; 2,212 &lt; 3,072 so it is in bounds, and PA = 36,864 + 2,212 = 39,076. <span class="why">The stack grows <strong>down</strong>: use the negative offset 2,212 − 4,096 = −1,884, giving 34,980.</span></li>
+  <li>Offset 2,212; negative offset 2,212 − 3,072 = −860; |−860| ≤ 3,072, so PA = 36,864 − 860 = 36,004. <span class="why">Subtract the <strong>max segment size</strong> (4,096), not the stack's actual size: −1,884 → 34,980.</span></li>
+  <li>Offset 2,212; the stack grows down, so PA = 36,864 − 2,212 = 34,652. <span class="why">The raw offset counts <em>up</em> from the bottom of the 4 KB slot. Convert it first: 2,212 − 4,096 = <strong>−1,884</strong> → 34,980.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">14-bit VA, top 2 bits select the segment (<code>11</code> = stack), 12-bit offset, so the max segment size is 4,096. Stack: virtual 12–16 KB, physical base 36 KB, size 3 KB, grows down. Which translation of VA 12,900 is TRUE?</p>
+  <ul>
+  <li data-true>Offset 612; negative offset 612 − 4,096 = −3,484; |−3,484| &gt; 3,072, so it is a segmentation fault. <span class="why">Offset = 12,900 − 12,288. The address is 3,484 below the top, but the stack only extends 3,072 below base.</span></li>
+  <li>Offset 612; negative offset 612 − 4,096 = −3,484, so PA = 36,864 − 3,484 = 33,380. <span class="why">You skipped the bounds check: |−3,484| &gt; 3,072 (the stack's size), so it <strong>faults</strong>.</span></li>
+  <li>Offset 612; 612 &lt; 3,072 so it is in bounds, and PA = 36,864 + 612 = 37,476. <span class="why">For a stack, check the <strong>negative</strong> offset: |612 − 4,096| = 3,484 &gt; 3,072 → <strong>fault</strong>.</span></li>
+  <li>Offset 612; negative offset 612 − 3,072 = −2,460; |−2,460| ≤ 3,072, so PA = 36,864 − 2,460 = 34,404. <span class="why">Subtract the <strong>max segment size</strong> (4,096): −3,484, which is out of bounds → <strong>fault</strong>.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">A stack segment has base B and size S, and grows down (negative direction). Which statement is TRUE?</p>
+  <ul>
+  <li data-true>B is the top (high end) of the stack's physical region; its valid bytes run from B − S up to B − 1. <span class="why">PA = B + negative offset, with −S ≤ negative offset ≤ −1. The highest virtual address (offset = max segment size − 1, negative offset −1) lands at B − 1.</span></li>
+  <li>B is the bottom (low end) of the stack's physical region; its valid bytes run from B up to B + S − 1. <span class="why">That's a segment that grows <strong>up</strong> (code, heap). For the stack, base is the <strong>top</strong>.</span></li>
+  <li>B is the top (high end) of the stack's physical region; its valid bytes run from B up to B + S − 1. <span class="why">If B is the top, the bytes lie <strong>below</strong> it: B − S … B − 1.</span></li>
+  <li>B is the top (high end) of the stack's physical region; its valid bytes run from B − 4 KB (the max segment size) up to B − 1. <span class="why">Only the stack's actual <strong>size S</strong> is backed by memory: B − S … B − 1. The 4 KB slot is just the virtual range.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>From your lab: segmentation in C</h2>
+<p>Lab 6: <code>mmu_segmented.c</code> gives each process a <strong>segment table</strong> (base and bounds for code, data, heap and stack) and translates (segment, offset) pairs, with the stack growing down.</p>
+<figure class="labcode" data-src="Labs/Lab 6/mmu_segmented.c" data-lines="8-12" data-hl="11" data-caption="Segment numbers. Stack = 3 = binary 11, the same selector the exam uses for the stack"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%206/mmu_segmented.c">Labs/Lab 6/mmu_segmented.c</a><span class="lc-span">lines 8–12</span></div><pre><span class="ln" data-n="8">#define SEG_CODE 0</span><span class="ln" data-n="9">#define SEG_DATA 1</span><span class="ln" data-n="10">#define SEG_HEAP 2</span><span class="ln hl" data-n="11">#define SEG_STACK 3</span><span class="ln" data-n="12">#define SEGMENT_COUNT 4</span></pre><figcaption>Segment numbers. Stack = 3 = binary 11, the same selector the exam uses for the stack</figcaption></figure>
+<figure class="labcode" data-src="Labs/Lab 6/mmu_segmented.c" data-lines="23-31" data-hl="25,30" data-caption="One base/bounds pair per segment instead of one per process. Bounds holds the size, as in the exam convention"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%206/mmu_segmented.c">Labs/Lab 6/mmu_segmented.c</a><span class="lc-span">lines 23–31</span></div><pre><span class="ln" data-n="23">struct segment {</span><span class="ln" data-n="24">    int base;</span><span class="ln hl" data-n="25">    int bounds; // also called size</span><span class="ln" data-n="26">};</span><span class="ln" data-n="27"> </span><span class="ln" data-n="28">struct process {</span><span class="ln" data-n="29">    int pid;</span><span class="ln hl" data-n="30">    struct segment segments[SEGMENT_COUNT];</span><span class="ln" data-n="31">};</span></pre><figcaption>One base/bounds pair per segment instead of one per process. Bounds holds the size, as in the exam convention</figcaption></figure>
+<figure class="labcode" data-src="Labs/Lab 6/mmu_segmented.c" data-lines="88-103" data-hl="89,94,98-101" data-caption="Check the segment number, check 0 &lt;= offset &lt; size, then add for code/data/heap and subtract for the stack"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%206/mmu_segmented.c">Labs/Lab 6/mmu_segmented.c</a><span class="lc-span">lines 88–103</span></div><pre><span class="ln" data-n="88">    // check the segment ID</span><span class="ln hl" data-n="89">    if (segment &lt; 0 || segment &gt;= SEGMENT_COUNT)</span><span class="ln" data-n="90">        return ERROR_INVALID_SEGMENT;</span><span class="ln" data-n="91"> </span><span class="ln" data-n="92">    // bounds check: 0 &lt;= offset &lt; bounds</span><span class="ln" data-n="93">    struct segment seg = p-&gt;segments[segment];</span><span class="ln hl" data-n="94">    if (offset &lt; 0 || offset &gt;= seg.bounds)</span><span class="ln" data-n="95">        return ERROR_BOUNDS;</span><span class="ln" data-n="96"> </span><span class="ln" data-n="97">    // translate: stack grows downward (subtract), the rest grow upward (add)</span><span class="ln hl" data-n="98">    if (segment == SEG_STACK)</span><span class="ln hl" data-n="99">        *physical_address = seg.base - offset;</span><span class="ln hl" data-n="100">    else</span><span class="ln hl" data-n="101">        *physical_address = seg.base + offset;</span><span class="ln" data-n="102"> </span><span class="ln" data-n="103">    return SUCCESS;</span></pre><figcaption>Check the segment number, check 0 &lt;= offset &lt; size, then add for code/data/heap and subtract for the stack</figcaption></figure>
+<p>Line 94 is the bounds check from "Heap translation (grows up)" and line 101 is its <code>PA = base + offset</code>. Line 99 is the stack's version from "Stack translation (grows down)": base is the <strong>top</strong> and addresses go <em>down</em> from it. Your required tests printed:</p>
+<pre><code>[OK] PID 1: SEG=code offset=206 -&gt; PA=1206
+[OK] PID 1: SEG=heap offset=350 -&gt; PA=7350
+[FAULT] PID 1: Out of bounds
+[OK] PID 2: SEG=code offset=299 -&gt; PA=6299
+[ERROR] PID 3 not found
+[ERROR] Invalid segment ID: 5</code></pre>
+<div class="labnote warn">Your lab's stack convention is <strong>not</strong> the exam's. (1) The function is handed the segment number as a separate argument, so there's no SEG_MASK / SEG_SHIFT: an exam gives one raw VA and you must split it yourself. (2) Your offset is the distance <em>down from base</em>, and offsets 0 … size − 1 are legal, so the stack covers <strong>base − size + 1 … base</strong>. In the exam (OSTEP, Quiz 6) you compute neg = offset − max segment size, check |neg| ≤ size, and PA = base + neg, so the stack covers <strong>base − size … base − 1</strong>. Your offset 0 (PA = base) is one byte above the exam's stack. For an exam, write it as: <code>seg = (VA &amp; SEG_MASK) &gt;&gt; SEG_SHIFT; off = VA &amp; OFFSET_MASK; neg = off - MAX_SEG; if (-neg &gt; size) fault; PA = base + neg;</code>. Bounds = size and stack = 11 do match the exam convention.</div>
+<div class="labnote">Exam angle: translating a stack address by both methods, or spotting why a "PA = base − offset" answer is off when the question gives a raw VA.</div>
+<div class="checkpoint">
+<div class="rc"><p class="q">Predict what <code>test_segment_access(1, SEG_STACK, 499, 1)</code> prints. Then: which offset would be the first to fault?</p><div class="a"><code>[OK] PID 1: SEG=stack offset=499 -&gt; PA=3501</code>: 499 &lt; 500 (PID 1's stack bounds), and the stack subtracts: 4000 − 499. The first faulting offset is <strong>500</strong> (that's the lab's own third test).</div></div>
+<div class="rc"><p class="q">Bridge the two conventions. 14-bit VAs, max segment size 4,096, and PID 2's stack (base 3000, size 400). Translate VA 16,000 the exam way. Then: what offset would you pass to <code>segmented_translate(2, SEG_STACK, …)</code> to reach the same PA?</p><div class="a">Exam way: top bits 11 → stack. Offset = 16,000 − 12,288 = 3,712. neg = 3,712 − 4,096 = <strong>−384</strong>. |−384| ≤ 400 ✓. PA = 3000 − 384 = <strong>2616</strong>.<br>Lab way: 3000 − k = 2616, so <strong>k = 384</strong>, which is just |neg|. (Checked: the lab code prints PA=2616 for offset 384.)</div></div>
+<div class="rc"><p class="q">What does <code>test_segment_access(5, 9, 0, 1)</code> print, and why that message and not the other one?</p><div class="a"><code>[ERROR] PID 5 not found</code>. Both the PID and the segment are bad, but the PID search (lines 83–86) runs and returns <em>before</em> the segment check on line 89.</div></div>
+<div class="close">
+  <p class="q">What does <code>segmented_translate(1, SEG_STACK, 120, &amp;pa)</code> do? (PID 1's stack: base 4000, bounds 500.)</p>
+  <ul>
+  <li data-true>Returns SUCCESS with PA = 3880, because line 99 computes 4000 − 120. <span class="why">120 &lt; 500 passes line 94, and the stack subtracts the offset from its base.</span></li>
+  <li>Returns SUCCESS with PA = 4120, because line 101 computes 4000 + 120. <span class="why">Line 98 sends the stack to line 99, which <strong>subtracts</strong>. Only the other segments add.</span></li>
+  <li>Returns SUCCESS with PA = 24, because it computes 4000 + (120 − 4096). <span class="why">That's the exam formula applied to the wrong kind of offset. The lab code just does base − offset.</span></li>
+  <li>Returns ERROR_BOUNDS, because a stack offset must be negative to pass line 94. <span class="why">Line 94 rejects offsets <strong>below 0</strong>. The lab's stack offsets are positive distances down from base.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">Stack base B, size S. Which comparison of the two conventions is TRUE?</p>
+  <ul>
+  <li data-true>Lab offset 0 maps to PA = B; in the exam convention the highest stack VA maps to PA = B − 1. <span class="why">Lab: B − 0. Exam: neg = (max − 1) − max = −1, so B − 1.</span></li>
+  <li>Lab offset 0 maps to PA = B; in the exam convention the highest stack VA also maps to PA = B. <span class="why">In the exam convention neg is at most −1, so PA never reaches B: the top byte is B − 1.</span></li>
+  <li>Lab offset 0 maps to PA = B − 1; in the exam convention the highest stack VA maps to PA = B − 1. <span class="why">Line 99 with offset 0 gives B − 0 = <strong>B</strong>.</span></li>
+  <li>Lab offset 0 maps to PA = B; in the exam convention the highest stack VA maps to PA = B − S. <span class="why">B − S is the <strong>lowest</strong> stack byte (neg = −S). The highest VA gives neg = −1.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">Why does <code>mmu_segmented.c</code> never use SEG_MASK or SEG_SHIFT?</p>
+  <ul>
+  <li data-true>Its caller passes the segment number and the offset as two separate arguments, so there are no selector bits to extract. <span class="why">An exam question gives one raw VA instead; then you mask and shift to split it.</span></li>
+  <li>Its caller passes one raw virtual address, and line 93 extracts the segment with SEG_MASK. <span class="why">Line 93 just copies <code>p-&gt;segments[segment]</code>; the segment arrives ready-made as an argument.</span></li>
+  <li>It uses the implicit approach, so the segment is chosen by how the address was formed. <span class="why">Nothing is inferred: the segment is passed <strong>explicitly</strong> as the second argument.</span></li>
+  <li>Its caller passes the segment number and offset separately, so the stack needs the max segment size instead. <span class="why">The lab's stack uses <strong>base − offset</strong>; max segment size appears only in the exam's raw-VA method.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>The implicit approach (briefly)</h2>
+<p>Instead of using address bits, the hardware works out the segment from <em>how the address was formed</em>:<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-segmentation.pdf">OSTEP §16.2</a></p>
+<ul>
+<li>It came from the <strong>program counter</strong> (an instruction fetch): code segment.</li>
+<li>It was based on the <strong>stack or base pointer</strong>: stack segment.</li>
+<li>Anything else: heap.</li>
+</ul>
+<p>No selector bits means no wasted selector slot, and every segment can use the full address width. The cost is extra hardware logic.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">In the implicit approach there are no selector bits. How does the hardware decide the segment?</p><div class="a">From <strong>how the address was formed</strong>: from the <strong>program counter</strong> (instruction fetch) → code; based on the <strong>stack or base pointer</strong> → stack; anything else → heap.</div></div>
+<div class="close">
+  <p class="q">In the <strong>implicit</strong> approach, how does the hardware decide which segment an address is in?</p>
+  <ul>
+  <li data-true>From how the address was formed: from the program counter → code; based on the stack or base pointer → stack; otherwise → heap. <span class="why">OSTEP §16.2: no selector bits, so the hardware looks at where the address came from.</span></li>
+  <li>From the top bits of the virtual address: <code>00</code> → code, <code>01</code> → heap, <code>11</code> → stack. <span class="why">Using the top bits is the <strong>explicit</strong> approach. Implicit uses <strong>how the address was formed</strong>.</span></li>
+  <li>From how the address was formed: from the program counter → code; based on the stack or base pointer → heap; otherwise → stack. <span class="why">Addresses based on the stack or base pointer belong to the <strong>stack</strong>; everything else is the heap.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Sharing and protection</h2>
+<p>Add a few <strong>protection bits</strong> per segment (read / write / execute). Mark code <strong>read-execute</strong>, and the OS can safely <strong>share one physical copy</strong> of the code between processes running the same program. Each process still thinks the code is its own private memory.<span class="cite">Bilal slides, Ch 16</span></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Segment</th><th class="r">Base</th><th class="r">Size</th><th>Grows +?</th><th>Protection</th></tr></thead>
+<tbody>
+<tr><td>Code</td><td class="r">32K</td><td class="r">2K</td><td>1</td><td>Read-Execute</td></tr>
+<tr><td>Heap</td><td class="r">34K</td><td class="r">2K</td><td>1</td><td>Read-Write</td></tr>
+<tr><td>Stack</td><td class="r">28K</td><td class="r">2K</td><td>0</td><td>Read-Write</td></tr>
+</tbody></table></div>
+<p>The hardware now checks permissions as well as bounds. Writing to a read-only segment, or executing from a non-executable one, raises an exception.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">What makes it safe for the OS to share one physical copy of a program's code between processes, and what happens if a process writes to it?</p><div class="a">Per-segment <strong>protection bits</strong>: the code segment is marked <strong>read-execute</strong> (no write), so no process can change the shared copy. A write to it makes the hardware <strong>raise an exception</strong>. Each process still thinks the code is its own private memory.</div></div>
+<div class="close">
+  <p class="q">Which statement about code sharing with segmentation is TRUE?</p>
+  <ul>
+  <li data-true>Code is marked read-execute, so several processes can safely share one physical copy; a write to it raises an exception. <span class="why">Per-segment protection bits make sharing safe, and each process still thinks the code is its own private memory.</span></li>
+  <li>Code is marked read-write, so several processes can share one physical copy and see each other's changes. <span class="why">Shared code is marked <strong>read-execute</strong> (no write), so no process can change the shared copy.</span></li>
+  <li>Code is marked read-execute, so several processes can safely share one physical copy; a write to it is silently ignored. <span class="why">The hardware checks the protection bits and <strong>raises an exception</strong> on a write.</span></li>
+  <li>Code is marked read-execute, so several processes can safely share one physical copy, though each can tell it is shared. <span class="why">Sharing stays <strong>transparent</strong>: each process still thinks the code is its own private memory.</span></li>
+  </ul>
+</div>
+</div>
+
+<h2>Coarse-grained vs fine-grained</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Coarse-grained</th><th>Fine-grained</th></tr></thead>
+<tbody>
+<tr><td>A <strong>few large</strong> segments (code, heap, stack)</td><td><strong>Many small</strong> segments (early systems, thousands)</td></tr>
+<tr><td>Segment registers in the MMU</td><td>Needs a <strong>segment table</strong> in memory, with hardware support</td></tr>
+</tbody></table></div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Coarse-grained vs fine-grained segmentation: what's the difference, and where is the segment information kept?</p><div class="a"><strong>Coarse</strong>: a <strong>few large</strong> segments (code, heap, stack), kept in segment registers in the MMU. <strong>Fine</strong>: <strong>many small</strong> segments (early systems had thousands), which need a <strong>segment table in memory</strong>.</div></div>
+<div class="close">
+  <p class="q">Which statement about coarse-grained vs fine-grained segmentation is TRUE?</p>
+  <ul>
+  <li data-true>Coarse-grained has a few large segments kept in MMU registers; fine-grained has many small segments, kept in a segment table in memory. <span class="why">Code/heap/stack fit in a few base-bounds register pairs. Thousands of segments need a <strong>segment table in memory</strong> (with hardware support).</span></li>
+  <li>Coarse-grained has many small segments kept in MMU registers; fine-grained has a few large segments, kept in a segment table in memory. <span class="why">Sizes swapped. <strong>Coarse</strong> = a <strong>few large</strong> chunks (code, heap, stack); <strong>fine</strong> = <strong>many small</strong> ones.</span></li>
+  <li>Coarse-grained has a few large segments kept in a segment table in memory; fine-grained has many small segments, kept in MMU registers. <span class="why">Locations swapped. A few segments fit in MMU <strong>registers</strong>; thousands of segments don't, so fine-grained needs a <strong>table in memory</strong>.</span></li>
+  <li>Coarse-grained has a few large segments kept in MMU registers; fine-grained has many small segments, needing no extra hardware support. <span class="why">Supporting many segments needs <strong>further hardware support</strong>: a segment table in memory that the hardware uses.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">OSTEP mentions early machines like the Burroughs B5000, which supported thousands of segments. Which is TRUE?</p>
+  <ul>
+  <li data-true>That is fine-grained segmentation: the compiler chops code and data into many small segments, tracked in a segment table in memory. <span class="why">OSTEP 16.5: early systems such as the Burroughs B5000 used many small segments, which need a segment table in memory.</span></li>
+  <li>That is coarse-grained segmentation: the compiler chops code and data into many small segments, tracked in a segment table in memory. <span class="why">Many small segments is <strong>fine</strong>-grained. Coarse-grained means a <strong>few large</strong> ones (code, heap, stack).</span></li>
+  <li>That is fine-grained segmentation: the compiler chops code and data into many small segments, tracked in one register pair each. <span class="why">There aren't thousands of register pairs in the MMU; the segment info lives in a <strong>segment table in memory</strong>.</span></li>
+  <li>That is fine-grained segmentation: the OS chops each program into many small segments as it loads it, tracked in a segment table in memory. <span class="why">Wrong actor. OSTEP: the B5000 expected the <strong>compiler</strong> to chop code and data into segments, which the OS and hardware then support.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>What the OS must do now</h2>
+<ol class="steps">
+<li><strong>Context switch</strong>: save and restore <em>all</em> the segment registers (base, size, direction, protection) in each process's PCB. Otherwise the next process would run with the wrong mappings.</li>
+<li><strong>Growing a segment</strong>: when <code>malloc()</code> needs more heap, the library calls <code>sbrk()</code>. The OS grows the heap segment if there's room, and otherwise the request fails and <code>malloc()</code> returns NULL.</li>
+<li><strong>Managing free physical memory</strong>: segments now have <em>different</em> sizes, so free memory breaks into holes.</li>
+</ol>
+
+<h3>External fragmentation</h3>
+<p><strong>External fragmentation</strong> is little holes of free space <em>between</em> allocated segments, which make it hard to place new segments.<span class="cite">Bilal slides, Ch 16</span></p>
+<figure>
+<svg viewBox="0 0 600 120" role="img" aria-label="Physical memory with three free 8 KB holes between allocated blocks; a 20 KB request does not fit">
+  <rect x="20" y="30" width="60" height="40" class="fig-surface"/><text x="50" y="55" text-anchor="middle" class="fig-ink2" font-size="11">OS</text>
+  <rect x="80" y="30" width="80" height="40" fill="none" stroke="var(--s3)" stroke-width="2" stroke-dasharray="5 3"/><text x="120" y="55" text-anchor="middle" fill="var(--s3)" font-size="12" font-weight="600">8 KB free</text>
+  <rect x="160" y="30" width="80" height="40" fill="var(--s7)"/><text x="200" y="55" text-anchor="middle" fill="#fff" font-size="11">used</text>
+  <rect x="240" y="30" width="80" height="40" fill="none" stroke="var(--s3)" stroke-width="2" stroke-dasharray="5 3"/><text x="280" y="55" text-anchor="middle" fill="var(--s3)" font-size="12" font-weight="600">8 KB free</text>
+  <rect x="320" y="30" width="80" height="40" fill="var(--s7)"/><text x="360" y="55" text-anchor="middle" fill="#fff" font-size="11">used</text>
+  <rect x="400" y="30" width="80" height="40" fill="none" stroke="var(--s3)" stroke-width="2" stroke-dasharray="5 3"/><text x="440" y="55" text-anchor="middle" fill="var(--s3)" font-size="12" font-weight="600">8 KB free</text>
+  <rect x="480" y="30" width="100" height="40" fill="var(--s7)"/><text x="530" y="55" text-anchor="middle" fill="#fff" font-size="11">used</text>
+  <text x="300" y="98" text-anchor="middle" fill="var(--bad)" font-size="12" font-weight="600">24 KB free in total, but a 20 KB segment fits nowhere ✗</text>
+</svg>
+<figcaption>Bilal's and Zafar's example: free space exists, but it isn't contiguous.</figcaption>
+</figure>
+
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Internal fragmentation (Lesson 12)</th><th>External fragmentation (here)</th></tr></thead>
+<tbody>
+<tr><td>Where the waste is</td><td><em>Inside</em> an allocated block</td><td><em>Between</em> allocated blocks</td></tr>
+<tr><td>Caused by</td><td>Fixed-size allocations bigger than needed (base and bounds)</td><td>Variable-sized allocations (segmentation)</td></tr>
+</tbody></table></div>
+
+<h3>Two fixes, both imperfect</h3>
+<ol class="steps">
+<li><strong>Compaction</strong>: stop the processes, copy their segments together into one contiguous region, and update their segment base registers. It leaves one big free block, but it's <strong>costly</strong> (lots of copying and CPU time), and it can ironically make growing existing segments harder.</li>
+<li><strong>Free-list management algorithms</strong>: <strong>best-fit, worst-fit, first-fit, buddy algorithm</strong>. They try to keep large free extents available. But no matter how smart the algorithm, external fragmentation still exists; they only <em>minimise</em> it. (Details are in the next chapter, Free-Space Management.)</li>
+</ol>
+
+<div class="box exam"><span class="tag">This is how it's asked</span>
+Quiz 6 had exactly these types: <strong>(1)</strong> given address bits and selector bits, find the number of segments (2<sup>s</sup>) and the max segment size (2<sup>n</sup>, in KB/MB/GB); <strong>(2)</strong> given a segment table with virtual ranges, translate a heap VA and a stack VA, <em>showing the bounds check</em>; <strong>(3)</strong> write a VA in 14-bit binary, extract the segment with SEG_MASK and SEG_SHIFT, and explain why the shift is needed. Expect short-answer questions on protection bits, sharing, compaction and external fragmentation too.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Free memory has holes of 6 KB, 10 KB and 4 KB between segments. A new 12 KB segment is requested. Can it be placed? Name the problem, and the two ways the OS fights it.</p><div class="a">No: 20 KB is free in total, but no single hole is 12 KB. That's <strong>external fragmentation</strong>: free space split into holes <em>between</em> variable-sized segments. Fixes: (1) <strong>compaction</strong>: stop processes, copy segments together, update their bases (expensive); (2) <strong>free-list algorithms</strong> (best-fit, worst-fit, first-fit, buddy), which reduce it but never remove it.</div></div>
+<div class="rc"><p class="q">Internal vs external fragmentation: where is the waste, and which scheme causes each?</p><div class="a"><strong>Internal</strong>: waste <em>inside</em> an allocated block; caused by fixed-size allocations bigger than needed (<strong>base and bounds</strong>). <strong>External</strong>: waste <em>between</em> allocated blocks; caused by variable-sized allocations (<strong>segmentation</strong>).</div></div>
+<div class="rc"><p class="q">With segmentation, what must the OS save and restore on a context switch, and what happens when malloc needs a bigger heap?</p><div class="a">Context switch: <strong>all the segment registers</strong> (base, size, grows-positive bit, protection) into/from each process's PCB.<br>Heap growth: malloc calls <strong>sbrk()</strong>; the OS grows the heap segment if there's room, otherwise it fails and malloc returns NULL.</div></div>
+<div class="close">
+  <p class="q">Free physical memory consists of holes of 5 KB, 7 KB and 6 KB between segments. A new 10 KB segment is requested. Which is TRUE?</p>
+  <ul>
+  <li data-true>No hole can hold it as memory stands: 18 KB is free in total, but no single hole is 10 KB. This is external fragmentation. <span class="why">A segment must be contiguous. Holes <em>between</em> variable-sized segments = external fragmentation.</span></li>
+  <li>No hole can hold it as memory stands: 18 KB is free in total, but no single hole is 10 KB. This is internal fragmentation. <span class="why">Waste <strong>between</strong> allocated blocks is <strong>external</strong>. Internal is waste <em>inside</em> a block (base and bounds).</span></li>
+  <li>It can be placed as memory stands: 18 KB is free in total, and the segment is split across the holes. <span class="why">A segment is one <strong>contiguous</strong> range with a single base, so it can't be split.</span></li>
+  <li>No hole can hold it as memory stands: 18 KB is free in total, but no single hole is 10 KB. Using best-fit would remove this problem completely. <span class="why">Free-list algorithms only <strong>minimise</strong> external fragmentation. Only <strong>compaction</strong> merges the holes, at a high cost.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Practice</h2>
+<p>Answer from memory first, then check. Struggling a little is what makes it stick.</p>
+<p class="score" data-score></p>
+
+<div class="num" data-answer="8">
+<p class="q">1. A system has 32-bit virtual addresses. The top 3 bits select the segment. How many segments can be identified?</p>
+<div class="why">2<sup>3</sup> = <strong>8</strong> segments.</div>
+</div>
+
+<div class="num" data-answer="512|512MB|512 MB">
+<p class="q">2. Same system (32-bit, 3 selector bits). What is the maximum size of one segment, in MB?</p>
+<div class="why">Offset bits = 32 − 3 = 29. Max size = 2<sup>29</sup> = 2<sup>9</sup> × 2<sup>20</sup> = <strong>512 MB</strong>.</div>
+</div>
+
+<div class="num" data-answer="10010100011100|10 010100011100|10 0101 0001 1100" data-tol="0">
+<p class="q">3. In a 14-bit system, write virtual address 9500 as 14 bits (only 0s and 1s).</p>
+<div class="why">9500 = 8192 + 1024 + 256 + 16 + 8 + 4 = 2<sup>13</sup> + 2<sup>10</sup> + 2<sup>8</sup> + 2<sup>4</sup> + 2<sup>3</sup> + 2<sup>2</sup> → <code>10 0101 0001 1100</code>. The selector is <code>10</code> (segment 2) and the offset is 1308 (9500 − 8192). In the OSTEP layout, selector 10 is unused, so this access would fault.</div>
+</div>
+
+<div class="mcq" data-correct="1">
+<p class="q">4. After computing <code>VA &amp; SEG_MASK</code>, why does the hardware still shift right by SEG_SHIFT?</p>
+<button>To clear the offset bits from the address.</button>
+<button>To move segment bits down into an index.</button>
+<button>To check that the offset is within bounds.</button>
+<button>To add the base register to the result.</button>
+<div class="why">The mask already cleared the offset bits, but the segment bits are still at positions 13–12, so the value is a large number such as 4096 or 12288. Shifting right by 12 moves them to bits 1–0, giving 0–3, which can index the segment table.</div>
+</div>
+
+<p>For questions 5–7, use this table (14-bit VA, top 2 bits = selector, 12-bit offset, so the max segment size is 4 KB):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Segment</th><th>Bits</th><th>Virtual range</th><th class="r">Physical base</th><th class="r">Size</th><th>Grows</th></tr></thead>
+<tbody>
+<tr><td>Heap</td><td><code>01</code></td><td>4 KB – 8 KB</td><td class="r">30 KB</td><td class="r">2 KB</td><td>Up</td></tr>
+<tr><td>Stack</td><td><code>11</code></td><td>12 KB – 16 KB</td><td class="r">60 KB</td><td class="r">2 KB</td><td>Down</td></tr>
+</tbody></table></div>
+
+<div class="num" data-answer="31624">
+<p class="q">5. Translate virtual address 5,000 (decimal) to a physical address.</p>
+<div class="why">5,000 is in 4–8 KB, so Heap. Offset = 5,000 − 4,096 = 904. Check 904 &lt; 2,048 ✓. PA = 30 × 1024 + 904 = 30,720 + 904 = <strong>31,624</strong>.</div>
+</div>
+
+<div class="num" data-answer="60056">
+<p class="q">6. Translate virtual address 15,000 (decimal) to a physical address.</p>
+<div class="why">15,000 is in 12–16 KB, so Stack. Offset = 15,000 − 12,288 = 2,712. Negative offset = 2,712 − 4,096 = −1,384. Check |−1,384| ≤ 2,048 ✓. PA = 61,440 + (−1,384) = <strong>60,056</strong>.</div>
+</div>
+
+<div class="mcq" data-correct="3">
+<p class="q">7. What happens when the process accesses virtual address 13,000?</p>
+<button>It maps to physical address 62152.</button>
+<button>It maps to physical address 58056.</button>
+<button>It maps to physical address 61152.</button>
+<button>It raises a segmentation fault exception.</button>
+<div class="why">Stack: offset = 13,000 − 12,288 = 712. Negative offset = 712 − 4,096 = −3,384. |−3,384| &gt; 2,048 (the stack's size), so it's out of bounds: <strong>segmentation fault</strong>. (58,056 = 61,440 − 3,384 is what you'd get by skipping the check. 62,152 adds the positive offset to base, which is the wrong direction.)</div>
+</div>
+
+<details class="recall"><summary>8. What is external fragmentation, why does segmentation cause it, and what are the two ways the OS fights it?</summary>
+<div>External fragmentation means free memory is split into small, non-contiguous holes <em>between</em> segments, so a large request can fail even though enough total memory is free. Segmentation causes it because segments have <strong>variable sizes</strong>. Fixes: (1) <strong>compaction</strong>: stop processes, copy segments together, update base registers (expensive); (2) <strong>free-list algorithms</strong> such as best-fit, worst-fit, first-fit and buddy, which reduce but never eliminate it.</div></details>
+
+<!-- ======================================================== -->
+<div class="source"><span class="tag">Primary source: read this next</span>
+<p style="margin:.3rem 0 0"><a href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-segmentation.pdf">OSTEP Chapter 16: Segmentation</a> (≈12 pages, pp. 165–176 of your <code>OS - Book.pdf</code>). Focus on §16.2 (the SEG_MASK code), §16.3 (the stack's negative offset) and §16.6 (fragmentation).</p></div>
+
+<p class="ask">💬 Something unclear? Ask me (your Claude teacher) anything, e.g. <em>"give me five more stack translations, some that fault"</em> or <em>"drill me on powers of 2 for segment sizes"</em>.</p>
+
+<nav class="nextprev"><a href="0012-base-and-bounds.html">← Lesson 12 · Base and bounds</a><a href="../reference/cheatsheet.html">Cheat sheet →</a></nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exam Cheat Sheet</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/recall.js" defer></script>
+<style>
+  body.ref main { max-width: 64rem; }
+  .ref-grid section { font-size: .9rem; }
+  .ref-grid ul, .ref-grid ol { padding-left: 1.1rem; margin: .3rem 0; }
+  .ref-grid li { margin: .15rem 0; }
+  .f { font-family: var(--mono); font-size: .82rem; background: var(--surface); padding: .35rem .5rem; border-radius: 6px; display: block; margin: .35rem 0; white-space: pre-wrap; }
+  .ref-grid table { font-size: .76rem; margin: .4rem 0; }
+  .ref-grid h3 .ch { font-family: var(--sans); font-size: .65rem; color: var(--muted); font-weight: 400; margin-left: .4rem; }
+  @media print { .ref-grid { grid-template-columns: 1fr 1fr; gap: .5rem; } .ref-grid section { padding: .4rem .6rem; font-size: 8.5pt; } h1 { font-size: 16pt; } .lede { display: none; } }
+</style>
+</head>
+<body class="ref">
+<main>
+<nav class="crumbs"><a href="../index.html">← Course map</a><a href="../drill.html">Test yourself: spot the true one →</a><span>Reference · print-friendly</span></nav>
+<p class="kicker">Reference</p>
+<h1>Midterm cheat sheet</h1>
+<p class="lede">Every formula, recipe and rule list from Lessons 1–13 on one page. Read it the morning of the exam.</p>
+
+<div class="ref-grid">
+
+<section><h3>Big picture <span class="ch">L1 · Ch 2</span></h3>
+<ul>
+<li><strong>Three easy pieces:</strong> virtualization (CPU and memory), concurrency, persistence</li>
+<li><strong>Mechanism</strong> = how (context switch). <strong>Policy</strong> = which (scheduler).</li>
+<li>Threads share code, heap, globals and open files; each has its <em>own</em> stack, registers and PC</li>
+<li><code>counter++</code> = LOAD → ADD → STORE. Each thread has its own register, and memory changes only on STORE.</li>
+<li>OS goals: abstraction, performance, protection, reliability (also energy, security, mobility)</li>
+</ul></section>
+
+<section><h3>The process <span class="ch">L2 · Ch 4</span></h3>
+<ul>
+<li>Machine state = memory (code, data, heap, stack) + registers (<strong>PC</strong> = address of the next instruction; <strong>SP</strong> = top of stack: locals, params, return addresses) + I/O (open files)</li>
+<li>Creation: load code + static data (lazily) → stack (argc/argv) → heap → fds 0/1/2 → jump to <code>main</code></li>
+<li>Running ⇄ Ready (scheduled/descheduled); Running → Blocked (I/O starts); Blocked → Ready (I/O done). <strong>Never</strong> Blocked → Running.</li>
+</ul>
+<table><tr><th>xv6</th><th>Meaning</th></tr>
+<tr><td>UNUSED</td><td>free slot in the process table</td></tr><tr><td>EMBRYO</td><td>being created</td></tr>
+<tr><td>SLEEPING</td><td>blocked (waiting on I/O or an event)</td></tr><tr><td>RUNNABLE</td><td>ready, waiting for the CPU</td></tr>
+<tr><td>RUNNING</td><td>on the CPU</td></tr><tr><td>ZOMBIE</td><td>exited, parent hasn't called wait()</td></tr></table>
+<span class="f">struct proc { int pid; int state; void *pc; void *sp;
+  struct proc *parent; void *base; int size;
+  int open_files[16]; char name[20]; };</span></section>
+
+<section><h3>fork / exec / wait <span class="ch">L3 · Ch 5</span></h3>
+<ul>
+<li><code>fork()</code> returns <strong>0</strong> in the child, the <strong>child's PID</strong> in the parent, <strong>−1</strong> on error. The child resumes <em>after</em> the fork.</li>
+<li>n forks in a row (or in a loop) → <strong>2ⁿ</strong> processes. A printf inside the loop runs 2ⁿ⁺¹ − 2 times.</li>
+<li><code>if (fork()==0) fork();</code> → 3 processes, including a grandchild</li>
+<li>Recipe: draw the tree, then follow each process's own return value</li>
+<li><code>exec()</code> replaces the program; <strong>same PID</strong>; never returns on success. <code>fork</code> makes a <strong>new PID</strong>.</li>
+<li><code>wait()</code> only works on <strong>your own children</strong>; otherwise it returns −1 (ECHILD). It also reaps zombies.</li>
+<li>Output order is nondeterministic unless the parent calls <code>wait()</code></li>
+<li>Redirection: in the child, <code>close(1); open(file)</code> (the file gets fd 1), then exec</li>
+<li><code>&lt;unistd.h&gt;</code> = POSIX API (fork, exec, getpid, read, write, close); <code>&lt;sys/wait.h&gt;</code> = wait</li>
+<li>Makefile: <code>target: deps</code>, then a <strong>TAB</strong> before the command; <code>all:</code> first; <code>run: all</code></li>
+</ul></section>
+
+<section><h3>Limited direct execution <span class="ch">L4 · Ch 6</span></h3>
+<ul>
+<li>Boot (kernel mode): the OS sets up the trap table and starts the timer (both privileged)</li>
+<li><strong>Trap:</strong> hardware saves registers to the kernel stack → switches to kernel mode → jumps to the handler</li>
+<li><strong>Return-from-trap:</strong> restores registers → switches to user mode → jumps to the user PC</li>
+<li>Cooperative: the OS only regains control on a syscall, <code>yield</code> or a fault, so an infinite loop means rebooting</li>
+<li><strong><code>while(1);</code> answer:</strong> timer interrupt → hardware saves registers and enters kernel mode → handler → scheduler → context switch → return-from-trap into another process</li>
+<li>Two saves: (1) the <em>hardware</em> saves user registers onto the kernel stack (on every interrupt); (2) <code>switch()</code>: the <em>OS</em> saves kernel registers into the proc struct</li>
+</ul></section>
+
+<section><h3>Scheduling basics <span class="ch">L5 · Ch 7</span></h3>
+<span class="f">Turnaround = completion − arrival
+Response   = first run − arrival
+average    = sum ÷ n</span>
+<ul>
+<li><strong>FIFO:</strong> arrival order; non-preemptive; convoy effect</li>
+<li><strong>SJF:</strong> shortest burst first; non-preemptive; optimal turnaround if all jobs arrive together</li>
+<li><strong>STCF:</strong> least remaining time; re-decides at every arrival; preemptive</li>
+<li><strong>RR:</strong> one time slice each; best response time, worst turnaround</li>
+<li><strong>Identify the policy:</strong> a job split into pieces means preemption. Test FIFO (earliest arrival each time), SJF (shortest waiting job each time) and STCF (no newcomer shorter than the running job's remaining time), and list <em>every</em> policy that fits.</li>
+<li>Gantt charts with 1-indexed slots: a job in slots 1–3 completes at <strong>3</strong></li>
+<li>Time-slice overhead = switch ÷ (slice + switch)</li>
+</ul></section>
+
+<section><h3>MLFQ: the 5 rules <span class="ch">L6 · Ch 8</span></h3>
+<ol>
+<li>If Priority(A) &gt; Priority(B), A runs (B doesn't).</li>
+<li>If Priority(A) = Priority(B), A &amp; B run in RR.</li>
+<li>When a job enters the system, it is placed at the highest priority.</li>
+<li>Once a job uses up its time allotment at a given level (regardless of how many times it has given up the CPU), its priority is reduced.</li>
+<li>After some time period S, move all the jobs in the system to the topmost queue.</li>
+</ol>
+<ul><li>Starvation and changing behaviour are fixed by R5. Gaming the scheduler is fixed by R4.</li>
+<li>Trace: one lane per queue; using a full slice drops a job one level; lower queues run only when all higher ones are empty; after a boost, a job walks down the levels again</li></ul></section>
+
+<section><h3>Lottery &amp; stride <span class="ch">L7 · Ch 9</span></h3>
+<ul>
+<li>Winning ranges are consecutive blocks in list order. Use 1-based ranges if the question says "1 to total", otherwise 0-based.</li>
+<li>Fair only over many draws. A finished job leaves with its tickets, so short jobs run exactly their burst count.</li>
+<li>Currency: global = local ÷ user's local total × user's global tickets</li>
+</ul>
+<span class="f">stride = BIG ÷ tickets
+run the job with the lowest pass; pass += stride
+ties → the job listed first</span>
+<ul><li>A new job joining at pass 0 hogs the CPU. Lottery needs no global state; stride is exact.</li></ul></section>
+
+<section><h3>CFS <span class="ch">L8 · Ch 9</span></h3>
+<span class="f">slice_i = (w_i ÷ Σw) × sched_latency
+          (if &lt; min_granularity → use min_granularity)
+vruntime += runtime × (1024 ÷ w_i)</span>
+<ul>
+<li>Run the <strong>smallest vruntime</strong>, which is the leftmost node of the red-black tree</li>
+<li>Higher weight → vruntime grows more slowly → the task stays left → it gets more CPU</li>
+<li>New or waking task: vruntime = <strong>min_vruntime</strong> (so it neither starves nor hogs)</li>
+<li>Nice −20…+19; nice 0 = 1024; each step changes the weight about 1.25×</li>
+</ul>
+<table><tr><th>nice</th><td>−10</td><td>−5</td><td>0</td><td>5</td><td>10</td></tr><tr><th>weight</th><td>9548</td><td>3121</td><td>1024</td><td>335</td><td>110</td></tr></table></section>
+
+<section><h3>Multiprocessor <span class="ch">L9 · Ch 10</span></h3>
+<ul>
+<li><strong>SQMS</strong> (single queue): simple and balanced, but has ✗ lock contention (doesn't scale) and ✗ poor cache affinity</li>
+<li><strong>MQMS</strong> (a queue per CPU): fixes both problems (no shared lock, jobs stay put), but suffers ✗ <strong>load imbalance</strong></li>
+<li>Fixes: <strong>migration</strong> and <strong>work stealing</strong> (a less-busy queue peeks at a fuller one)</li>
+<li>Drawing: without balancing, each CPU round-robins its own queue; with balancing, even out the job counts (moving jobs as needed)</li>
+<li>Coherence: bus snooping. You still need locks for shared queues.</li>
+</ul></section>
+
+<section><h3>Address spaces &amp; malloc <span class="ch">L10–11 · Ch 13–14</span></h3>
+<ul>
+<li>Code at the top (0 KB), then heap growing ↓, free space, and stack growing ↑ from the end</li>
+<li>Goals: transparency, efficiency, protection</li>
+<li><code>p</code> = heap address · <code>&amp;p</code> = address of the pointer variable (stack) · <code>*p</code> = the value in the heap</li>
+<li><code>malloc(n*sizeof(int))</code>; strings need <code>strlen(s)+1</code>; <code>calloc</code> zeroes the memory</li>
+<li><code>tmp = realloc(p, new); if (tmp) p = tmp;</code> then <code>free(p); p = NULL;</code></li>
+<li><strong>Dangling / use-after-free:</strong> the pointer still holds the freed address. It "works" because the memory isn't erased, and the next malloc may reuse the same block. This is UB.</li>
+<li><strong>Double free</strong> is a <strong>run-time</strong> error: the compiler can't track it, and the allocator's metadata usually calls abort</li>
+<li>Leaks, uninitialized reads, overflow. Tools: valgrind, ASan.</li>
+<li>malloc/free are <em>library</em> calls; underneath they use brk/sbrk and mmap</li>
+</ul></section>
+
+<section><h3>Base &amp; bounds <span class="ch">L12 · Ch 15</span></h3>
+<span class="f">if 0 ≤ VA &lt; bounds:  PA = VA + base
+else: fault (exception → OS kills the process)</span>
+<ul>
+<li>This is the default, where bounds = size. If bounds is a physical end address, check PA &lt; bounds instead.</li>
+<li>Hardware: privileged mode, base/bounds registers in the MMU, privileged instructions to set them, exceptions</li>
+<li>OS: free list (allocate on create, reclaim on exit), save/restore base and bounds in the PCB on each context switch, exception handlers</li>
+<li>Weakness: <strong>internal fragmentation</strong> (the unused heap–stack gap)</li>
+</ul></section>
+
+<section><h3>Segmentation <span class="ch">L13 · Ch 16</span></h3>
+<span class="f">segments = 2^(selector bits)   max seg size = 2^(offset bits)
+seg    = (VA &amp; SEG_MASK) &gt;&gt; SEG_SHIFT
+offset =  VA &amp; OFFSET_MASK
+grows +:  offset &lt; size ?  PA = base + offset
+grows −:  neg = offset − max_seg_size
+          |neg| ≤ size ?  PA = base + neg</span>
+<ul>
+<li>14-bit example: SEG_MASK 0x3000, SEG_SHIFT 12, OFFSET_MASK 0xFFF</li>
+<li>Why shift? After masking, the bits are still high up (e.g. 4096). Shifting gives a small index 0–3.</li>
+<li>Usually 00 code, 01 heap, 11 stack. <strong>Use the table in the question</strong> (Bilal's slide table lists 10 for the stack).</li>
+<li>2¹⁰ = 1K, 2¹² = 4K, 2¹³ = 8K, 2¹⁴ = 16K, 2²⁰ = 1M, 2³⁰ = 1G</li>
+<li>Protection bits (R/W/X): code can be shared. Problem: <strong>external fragmentation</strong>, fixed by compaction or best/worst/first-fit and buddy allocation.</li>
+</ul></section>
+
+</div>
+<nav class="nextprev"><a href="../index.html">← Course map</a><a href="glossary.html">Glossary →</a></nav>
+</main>
+</body>
+</html>

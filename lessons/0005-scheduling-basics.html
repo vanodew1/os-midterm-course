@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scheduling Basics</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/quiz.js" defer></script>
+<script src="../assets/gantt.js" defer></script>
+<script src="../assets/recall.js" defer></script>
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">← Course map</a><span>Lesson 5 of 13 · OSTEP Ch 7 · ~20 min</span></nav>
+
+<p class="kicker">Lesson 5 · CPU virtualization: the policy</p>
+<h1>Scheduling basics: FIFO, SJF, STCF, RR</h1>
+<p class="lede">Lesson 4 showed how the OS gets the CPU back. Now: once it has the CPU, who should run next? Four simple policies, two metrics, and one trade-off you can't escape.</p>
+
+<div class="box key"><span class="tag">The plan of the chapter</span>
+Start with an unrealistic, simplified workload. Invent the best policy for it. Then relax one assumption at a time and watch that policy break, which motivates the next one.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched.pdf">OSTEP §7</a></div>
+
+<div class="warmup">
+<div class="rc"><p class="q">A process runs <code>while(1);</code> and never makes a system call. Step by step, how does the OS get the CPU back? (Lesson 4)</p><div class="a"><strong>Timer interrupt.</strong> (1) At boot the OS installs the trap table and starts the timer (both privileged). (2) After X ms the timer fires. (3) The hardware saves the process's registers onto its kernel stack, switches to kernel mode and jumps to the OS's timer handler. (4) The scheduler may now do a context switch and return-from-trap into another process. With only the cooperative approach (system calls / <code>yield()</code>) you would have to reboot.</div></div>
+<div class="rc"><p class="q">What three things does the hardware do on a <strong>trap</strong>, and what three on <strong>return-from-trap</strong>? (Lesson 4)</p><div class="a">Trap: <strong>save regs → kernel stack · move to kernel mode · jump to the trap handler</strong>.<br>Return-from-trap: <strong>restore regs ← kernel stack · move to user mode · jump to the program's PC</strong> (just after the trap).</div></div>
+<div class="rc"><p class="q">A process is Blocked waiting for a disk read. The read finishes. Which state does it move to, and why not straight to Running? (Lesson 2)</p><div class="a">It moves to <strong>Ready</strong>. There is no Blocked → Running arrow: the I/O-done event only makes it <em>able</em> to run, and it must wait until the scheduler picks it.</div></div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Workload assumptions</h2>
+<p>A <strong>job</strong> is just a process. Dr. Bilal's slides start from four assumptions:<span class="cite">Bilal slides, Ch 7, slide 3</span></p>
+<ol>
+<li>Each job runs for the <strong>same amount of time</strong>.</li>
+<li>All jobs <strong>arrive at the same time</strong>.</li>
+<li>All jobs only use the CPU (<strong>no I/O</strong>).</li>
+<li>The <strong>run-time</strong> of each job is <strong>known</strong>.</li>
+</ol>
+<div class="table-wrap"><table>
+<thead><tr><th>Relax…</th><th>…and this breaks</th><th>…so we invent</th></tr></thead>
+<tbody>
+<tr><td>Same length</td><td>FIFO (convoy effect)</td><td>SJF</td></tr>
+<tr><td>Same arrival</td><td>SJF (long job already running)</td><td>STCF (add preemption)</td></tr>
+<tr><td>(new metric: response time)</td><td>STCF (later jobs wait long to start)</td><td>Round Robin</td></tr>
+<tr><td>No I/O</td><td>CPU idles while a job waits for disk</td><td>Overlap: run another job during I/O</td></tr>
+<tr><td>Known run-time</td><td>SJF / STCF need an oracle</td><td>MLFQ (Lesson 6)</td></tr>
+</tbody></table></div>
+
+<div class="box exam"><span class="tag">Bilal vs. OSTEP / Dr. Zafar</span>
+OSTEP and Dr. Zafar list <strong>five</strong> assumptions. The extra one is "<em>once started, each job runs to completion</em>" (that is, no preemption), placed third, so "no I/O" and "known run-time" become 4 and 5. Dr. Bilal folds it into the STCF slide ("add preemption to SJF"). If a question says "relax assumption 3", check whose numbering it uses. Writing the assumption out in words is always safe.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">List Dr. Bilal's four workload assumptions at the start of the scheduling chapter. What fifth one do OSTEP and Dr. Zafar add?</p><div class="a"><ol><li>Each job runs for the <strong>same amount of time</strong>.</li><li>All jobs <strong>arrive at the same time</strong>.</li><li>Jobs use <strong>only the CPU</strong> (no I/O).</li><li>The <strong>run-time</strong> of each job is <strong>known</strong>.</li></ol>OSTEP's extra one: <strong>once started, each job runs to completion</strong> (no preemption), listed third.</div></div>
+<div class="rc"><p class="q">In the scheduling chapter, which new policy is invented when we relax (a) "all jobs have the same length", (b) "all jobs arrive together", (c) "run-times are known"?</p><div class="a">(a) FIFO suffers the convoy effect → <strong>SJF</strong>. (b) SJF can't stop a long job that started first → <strong>STCF</strong> (add preemption). (c) SJF/STCF need an oracle → <strong>MLFQ</strong>.</div></div>
+<div class="close">
+<p class="q">Which is TRUE about relaxing the workload assumptions (in words, so the numbering doesn't matter)?</p>
+<ul>
+<li data-true>Relaxing "all jobs arrive at the same time" breaks SJF, so we invent STCF. <span class="why">A long job that arrives first can't be stopped by non-preemptive SJF, so STCF adds preemption.</span></li>
+<li>Relaxing "all jobs arrive at the same time" breaks FIFO, so we invent SJF. <span class="why">That is the <strong>"same length"</strong> assumption: FIFO's convoy effect led to SJF.</span></li>
+<li>Relaxing "the run-time is known" breaks SJF, so we invent STCF. <span class="why">STCF needs run-times too. Unknown run-times lead to <strong>MLFQ</strong>.</span></li>
+<li>Relaxing "all jobs arrive at the same time" breaks STCF, so we invent Round Robin. <span class="why">RR came from a new <strong>metric</strong> (response time), not from a relaxed assumption. Late arrivals broke <strong>SJF</strong>, fixed by <strong>STCF</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which is TRUE about the assumption "the run-time of each job is known"?</p>
+<ul>
+<li data-true>SJF and STCF both depend on it; a real OS doesn't know run-times, which is why MLFQ learns from the past. <span class="why">Both must compare job lengths (SJF by burst, STCF by time left), so both need an oracle.</span></li>
+<li>SJF and RR both depend on it; a real OS doesn't know run-times, which is why MLFQ learns from the past. <span class="why">RR just cycles with a fixed slice and needs no run-times. The two that need them are SJF and <strong>STCF</strong>.</span></li>
+<li>SJF depends on it but STCF doesn't; a real OS doesn't know run-times, which is why MLFQ learns from the past. <span class="why">STCF compares <strong>remaining</strong> times, so it needs the run-times as well.</span></li>
+<li>SJF and STCF both depend on it; a real OS reads run-times from the program file, so MLFQ isn't needed. <span class="why">No such field exists: the OS has <strong>no oracle</strong>, so MLFQ predicts from past behaviour.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Two metrics</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Metric</th><th>Formula</th><th>Measures</th></tr></thead>
+<tbody>
+<tr><td><strong>Turnaround time</strong></td><td><code>T<sub>turnaround</sub> = T<sub>completion</sub> − T<sub>arrival</sub></code></td><td>Performance: how long from arriving to being completely done</td></tr>
+<tr><td><strong>Response time</strong></td><td><code>T<sub>response</sub> = T<sub>first run</sub> − T<sub>arrival</sub></code></td><td>Interactivity: how long until the job <em>first</em> gets the CPU</td></tr>
+</tbody></table></div>
+<p>A third goal, <strong>fairness</strong>, is often at odds with performance.<span class="cite">Bilal slides, Ch 7, slide 4</span> If all jobs arrive at 0, turnaround is simply the completion time.</p>
+
+<h3>The recipe: averages from any Gantt chart</h3>
+<ol class="steps">
+<li><strong>Make a table</strong> with one row per job and columns: arrival · first run · completion · T · R.</li>
+<li><strong>Arrival</strong>: copy from the question (or the ↓ marks above the chart). Don't assume 0.</li>
+<li><strong>First run</strong>: the <em>left</em> edge of the job's <em>first</em> block.</li>
+<li><strong>Completion</strong>: the <em>right</em> edge of the job's <em>last</em> block. With preemption a job has several blocks, so make sure you take the last one.</li>
+<li><strong>T = completion − arrival</strong>, <strong>R = first run − arrival</strong>, row by row.</li>
+<li><strong>Add each column and divide by the number of jobs.</strong> Leave the answer as a fraction too (e.g. 14/3 = 4.67).</li>
+</ol>
+
+<div class="box trap"><span class="tag">Three classic slips</span>
+(1) Using the job's <em>length</em> instead of its completion time. (2) Forgetting to subtract the arrival time for late jobs. (3) Off-by-one on quiz charts: Dr. Bilal's quiz charts label the time <em>slots</em> 1, 2, 3, …, so a job filling slots 1–3 runs from 0 to 3 and <strong>completes at 3</strong>. Read the boundaries, not the slot numbers.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Write the formulas for turnaround time and response time.</p><div class="a"><strong>T<sub>turnaround</sub> = T<sub>completion</sub> − T<sub>arrival</sub></strong><br><strong>T<sub>response</sub> = T<sub>first run</sub> − T<sub>arrival</sub></strong></div></div>
+<div class="rc"><p class="q">A job arrives at t = 3, first gets the CPU at t = 7, and finishes at t = 15. What are its turnaround and response times?</p><div class="a">Turnaround = 15 − 3 = <strong>12</strong>. Response = 7 − 3 = <strong>4</strong>.</div></div>
+<div class="rc"><p class="q">A quiz Gantt chart numbers its time slots 1, 2, 3, … A job fills slots 4, 5 and 6. When does it first run, and when does it complete?</p><div class="a">Slot 4 is the interval 3–4 and slot 6 is 5–6, so it <strong>first runs at 3</strong> and <strong>completes at 6</strong>. Read the boundaries, not the slot numbers.</div></div>
+<div class="close">
+<p class="q">Which is TRUE about turnaround time?</p>
+<ul>
+<li data-true>Turnaround time = completion time − arrival time. <span class="why">It measures the whole stay, from arriving to being completely done: T<sub>turnaround</sub> = T<sub>completion</sub> − T<sub>arrival</sub>.</span></li>
+<li>Turnaround time = first-run time − arrival time. <span class="why">That is <strong>response</strong> time. Turnaround ends at <strong>completion</strong>, not at the first run.</span></li>
+<li>Turnaround time = completion time − first-run time. <span class="why">It starts counting at <strong>arrival</strong>, not at the first run: time spent waiting before the first run counts too.</span></li>
+<li>Turnaround time = completion time − burst time. <span class="why">You subtract the <strong>arrival</strong> time, not the job's length (burst).</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">A job arrives at t = 4, first gets the CPU at t = 9, and completes at t = 17. Which is TRUE?</p>
+<ul>
+<li data-true>Its response time is 5. <span class="why">Response = first run − arrival = 9 − 4 = 5.</span></li>
+<li>Its response time is 9. <span class="why">You forgot to subtract the arrival: 9 − <strong>4</strong> = <strong>5</strong>.</span></li>
+<li>Its response time is 13. <span class="why">17 − 4 = 13 is its <strong>turnaround</strong> time. Response uses the first run: 9 − 4 = <strong>5</strong>.</span></li>
+<li>Its response time is 8. <span class="why">17 − 9 = 8 is the time from first run to completion, which is neither metric. Response = 9 − 4 = <strong>5</strong>.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>FIFO (First In, First Out)</h2>
+<p>Also called <strong>FCFS</strong> (First Come, First Served). Run jobs in arrival order, each to completion. Very simple and easy to implement.</p>
+<p>Three jobs A, B, C, each 4 s long, arrive at 0 (A just before B, just before C):</p>
+<div data-gantt='{"lanes":[{"label":"FIFO","segs":[["A",0,4],["B",4,8],["C",8,12]]}],"end":12}'></div>
+<p>Average turnaround = (4 + 8 + 12) / 3 = <strong>8 s</strong>. Fine.</p>
+
+<h3>The convoy effect</h3>
+<p>Now relax assumption 1: A needs 12 s, B and C need 3 s each.</p>
+<div data-gantt='{"lanes":[{"label":"FIFO","segs":[["A",0,12],["B",12,15],["C",15,18]]}],"end":18}'></div>
+<p>Average turnaround = (12 + 15 + 18) / 3 = <strong>15 s</strong>. Two short jobs are stuck behind one long one. That is the <strong>convoy effect</strong>.<span class="cite">Bilal slides, Ch 7, slide 6</span></p>
+<div class="box analogy"><span class="tag">Analogy</span>
+One supermarket checkout. The person in front of you has three full trolleys; you have a bottle of water. That feeling is the convoy effect.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">What is the <strong>convoy effect</strong>, and which scheduling policy suffers from it most?</p><div class="a">Short jobs get stuck waiting behind one long job, so average turnaround is terrible. It is the weakness of <strong>FIFO</strong> (and it comes back in SJF when a long job arrives first).</div></div>
+<div class="rc"><p class="q">FIFO. Jobs A (10 s), B (2 s), C (4 s) all arrive at t = 0, in that order. Average turnaround? Average response?</p><div class="a">Timeline: A 0–10 | B 10–12 | C 12–16.<br>Turnaround: (10 + 12 + 16)/3 = 38/3 ≈ <strong>12.67</strong>.<br>Response: (0 + 10 + 12)/3 = 22/3 ≈ <strong>7.33</strong>.</div></div>
+<div class="close">
+<p class="q">Which is TRUE about the convoy effect?</p>
+<ul>
+<li data-true>Under FIFO, short jobs queue behind one long job, so average turnaround is poor. <span class="why">Same total work, but the long job in front pushes every short job's completion time late. That is the convoy.</span></li>
+<li>Under SJF, long jobs queue behind many short jobs, so average turnaround is poor. <span class="why">Reversed. Running short jobs first is how SJF <strong>cures</strong> the convoy. The victims are <strong>short</strong> jobs stuck behind a long one under <strong>FIFO</strong>.</span></li>
+<li>Under RR, short jobs queue behind one long job, so average turnaround is poor. <span class="why">RR gives every job a slice in turn, so no job waits for a long one to finish. The convoy is a <strong>FIFO</strong> problem.</span></li>
+<li>Under FIFO, the CPU idles while one job waits for I/O, so turnaround is poor. <span class="why">That is the <strong>I/O overlap</strong> problem. The convoy effect is <strong>short jobs stuck behind a long job</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">FIFO. A arrives at t = 0 (burst 5), B at t = 2 (burst 3), C at t = 4 (burst 2). Which is TRUE?</p>
+<ul>
+<li data-true>Average turnaround is 17/3 ≈ 5.67. <span class="why">A 0–5, B 5–8, C 8–10. Turnaround: (5 − 0) + (8 − 2) + (10 − 4) = 5 + 6 + 6 = 17, so 17/3 ≈ 5.67.</span></li>
+<li>Average turnaround is 23/3 ≈ 7.67. <span class="why">That averages the completion times (5 + 8 + 10) and forgets to <strong>subtract the arrivals</strong>: (5 + 6 + 6)/3 = <strong>17/3 ≈ 5.67</strong>.</span></li>
+<li>Average turnaround is 10/3 ≈ 3.33. <span class="why">That averages the bursts (5 + 3 + 2). Turnaround = completion − arrival: (5 + 6 + 6)/3 = <strong>17/3 ≈ 5.67</strong>.</span></li>
+<li>Average turnaround is 7/3 ≈ 2.33. <span class="why">That is the average <strong>response</strong> time, (0 + 3 + 4)/3. Turnaround = (5 + 6 + 6)/3 = <strong>17/3 ≈ 5.67</strong>.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>SJF (Shortest Job First)</h2>
+<p>Run the shortest job first, then the next shortest, and so on. SJF is <strong>non-preemptive</strong>: once a job starts, it runs to completion. Same three jobs:</p>
+<div data-gantt='{"lanes":[{"label":"SJF","segs":[["B",0,3],["C",3,6],["A",6,18]]}],"end":18}'></div>
+<p>Average turnaround = (3 + 6 + 18) / 3 = <strong>9 s</strong>, down from 15, with exactly the same total work. When all jobs arrive together, SJF is <strong>provably optimal</strong> for average turnaround.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched.pdf">OSTEP §7.4</a></p>
+
+<h3>SJF breaks when jobs arrive late</h3>
+<p>Relax assumption 2. A (12 s) arrives at t = 0; B and C (3 s each) arrive at t = 2. At t = 0 only A exists, so SJF starts it, and, being non-preemptive, can't stop it:</p>
+<div data-gantt='{"lanes":[{"label":"SJF","segs":[["A",0,12],["B",12,15],["C",15,18]]}],"arrivals":[["A",0],["B",2],["C",2]],"end":18}'></div>
+<p>Average turnaround = ((12 − 0) + (15 − 2) + (18 − 2)) / 3 = (12 + 13 + 16) / 3 = 41/3 ≈ <strong>13.67 s</strong>. The convoy is back.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">SJF. Jobs A (10 s), B (2 s), C (4 s) all arrive at t = 0. Give the timeline and the average turnaround.</p><div class="a">Shortest first: B 0–2 | C 2–6 | A 6–16.<br>Turnaround: (2 + 6 + 16)/3 = 24/3 = <strong>8</strong> (FIFO gave 12.67 for the same jobs).</div></div>
+<div class="rc"><p class="q">Why does SJF stop being optimal once jobs can arrive at different times?</p><div class="a">SJF is <strong>non-preemptive</strong>. If a long job arrives first, SJF starts it (it's the only job) and can't stop it, so short jobs that arrive a moment later wait behind it. The convoy is back.</div></div>
+<div class="close">
+<p class="q">Which is TRUE about SJF?</p>
+<ul>
+<li data-true>SJF is non-preemptive: once a job starts, it runs to completion even if a shorter job arrives. <span class="why">SJF only makes a decision when the running job finishes. Adding preemption turns it into STCF.</span></li>
+<li>SJF is preemptive: when a shorter job arrives, it takes the CPU from the running job. <span class="why">That is <strong>STCF</strong> (preemptive SJF). Plain SJF is <strong>non-preemptive</strong>.</span></li>
+<li>SJF is non-preemptive: once a job starts it runs to completion, and no run-times need to be known. <span class="why">SJF must <strong>know</strong> every run-time to find the shortest job (an oracle). That is why MLFQ was invented.</span></li>
+<li>SJF re-decides at every arrival, comparing the remaining time of every job. <span class="why">That is <strong>STCF</strong>. SJF decides only when the running job <strong>finishes</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which is TRUE about SJF and average turnaround?</p>
+<ul>
+<li data-true>When all jobs arrive together, SJF gives the lowest possible average turnaround. <span class="why">OSTEP: SJF is provably optimal for average turnaround if all jobs arrive at the same time.</span></li>
+<li>When all jobs arrive together, SJF gives the lowest possible average response time. <span class="why">RR beats it on response (three 5-s jobs: SJF 5 s, RR with a 1-s slice 1 s). SJF's guarantee is about <strong>turnaround</strong>.</span></li>
+<li>Even when jobs arrive at different times, SJF gives the lowest possible average turnaround. <span class="why">A long job that arrives first blocks later short ones and the convoy returns. With staggered arrivals, <strong>STCF</strong> is the optimal one.</span></li>
+<li>When all jobs arrive together, SJF and FIFO always give the same average turnaround. <span class="why">Only if FIFO's order happens to be shortest-first. A 12, B 3, C 3 in that order: FIFO gives 15 s, SJF gives <strong>9 s</strong>.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>From your lab: FIFO and SJF in C (scheduler.c)</h2>
+<p>Lab 3, Task 3: you wrote <code>scheduler.c</code>, which runs the same three jobs (A 10, B 5, C 2, all arriving at 0) under FIFO and then SJF and prints each job's turnaround and response time.</p>
+<figure class="labcode" data-src="Labs/Lab 3/scheduler.c" data-lines="3-9" data-caption="One row of the recipe table: arrival, length, first run and completion for each job"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%203/scheduler.c">Labs/Lab 3/scheduler.c</a><span class="lc-span">lines 3–9</span></div><pre><span class="ln" data-n="3">struct job {</span><span class="ln" data-n="4">    char name;</span><span class="ln" data-n="5">    int arrival;</span><span class="ln" data-n="6">    int length;</span><span class="ln" data-n="7">    int start_time;</span><span class="ln" data-n="8">    int completion_time;</span><span class="ln" data-n="9">};</span></pre><figcaption>One row of the recipe table: arrival, length, first run and completion for each job</figcaption></figure>
+<p>This struct is the recipe table from <strong>Two metrics</strong>, one row per job. <code>start_time</code> is the "first run" column and <code>completion_time</code> is the "completion" column. Both start at −1, meaning "not set yet".</p>
+<figure class="labcode" data-src="Labs/Lab 3/scheduler.c" data-lines="15-26" data-hl="17,19,25,26" data-caption="FIFO: a clock that moves forward by each job's length, then the two metric formulas"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%203/scheduler.c">Labs/Lab 3/scheduler.c</a><span class="lc-span">lines 15–26</span></div><pre><span class="ln" data-n="15">    int current_time = 0;</span><span class="ln" data-n="16">    for (int i = 0; i &lt;job_count; i++) {</span><span class="ln hl" data-n="17">        jobs[i].start_time = current_time;</span><span class="ln" data-n="18">        current_time += jobs[i].length;</span><span class="ln hl" data-n="19">        jobs[i].completion_time = current_time;</span><span class="ln" data-n="20">    }</span><span class="ln" data-n="21">    </span><span class="ln" data-n="22">    int total_turnaround = 0, total_response = 0;</span><span class="ln" data-n="23"> </span><span class="ln" data-n="24">    for (int i = 0; i &lt;job_count; i++){</span><span class="ln hl" data-n="25">        int turnaround = jobs[i].completion_time - jobs[i].arrival;</span><span class="ln hl" data-n="26">        int response = jobs[i].start_time - jobs[i].arrival;</span></pre><figcaption>FIFO: a clock that moves forward by each job's length, then the two metric formulas</figcaption></figure>
+<p><strong>FIFO</strong> is just a clock (<code>current_time</code>). Each job starts when the clock says (line 17), the clock jumps forward by the job's length, and the job completes at the new time (line 19). Lines 25–26 are the two formulas, word for word: <strong>turnaround = completion − arrival</strong> and <strong>response = first run − arrival</strong>.</p>
+<figure class="labcode" data-src="Labs/Lab 3/scheduler.c" data-lines="42-50" data-hl="44" data-caption="SJF: sort the jobs shortest first, then run the same FIFO clock over the sorted array"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%203/scheduler.c">Labs/Lab 3/scheduler.c</a><span class="lc-span">lines 42–50</span></div><pre><span class="ln" data-n="42">    for (int i = 0; i &lt; job_count - 1; i++){</span><span class="ln" data-n="43">        for(int j = i+1; j &lt;job_count; j++){</span><span class="ln hl" data-n="44">            if (jobs[j].length &lt; jobs[i].length){</span><span class="ln" data-n="45">                struct job temp = jobs[i];</span><span class="ln" data-n="46">                jobs[i] = jobs[j];</span><span class="ln" data-n="47">                jobs[j] = temp;</span><span class="ln" data-n="48">            }</span><span class="ln" data-n="49">        }</span><span class="ln" data-n="50">    }</span></pre><figcaption>SJF: sort the jobs shortest first, then run the same FIFO clock over the sorted array</figcaption></figure>
+<p><strong>SJF</strong> = sort by length (line 44 swaps whenever a later job is shorter), then the exact same clock loop. That is why SJF needs to <em>know</em> every length in advance. Your write-up's output:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Policy</th><th>Order</th><th class="num">T (A, B, C)</th><th class="num">Avg T</th><th class="num">Avg R</th></tr></thead>
+<tbody>
+<tr><td>FIFO</td><td>A B C</td><td class="num">10, 15, 17</td><td class="num">14.00</td><td class="num">8.33</td></tr>
+<tr><td>SJF</td><td>C B A</td><td class="num">17, 7, 2</td><td class="num">8.67</td><td class="num">3.00</td></tr>
+</tbody></table></div>
+<div class="labnote warn"><strong>Two real bugs, and one exam mismatch.</strong> (1) <code>simulate_fifo</code> and <code>simulate_sjf</code> are declared <code>double</code> but never <code>return</code> anything (gcc -Wall warns "control reaches end of non-void function"), so the comparison on line 93 compares garbage. It is also backwards: a <em>bigger</em> average turnaround is <em>worse</em>, yet <code>&gt;</code> prints "fifo produced better". Fix: end each function with <code>return (double)total_turnaround / job_count;</code> and compare with <code>&lt;</code>. (2) The FIFO loop ignores arrival times. It works here because every job arrives at 0, but give it A (arrives 0, length 2) and B (arrives 5, length 3) and a copy of your code prints <code>Job B: Turnaround = 0, Response = -3</code>, because B "starts" at 2 before it exists. The exam version first waits for the job: <code>if (current_time &lt; jobs[i].arrival) current_time = jobs[i].arrival;</code> before line 17. The SJF sort has the same limit: it is only right when all jobs arrive together.</div>
+<div class="labnote">Exam angle: an exam job table is your <code>struct job</code> array. Fill start and completion with the clock, then apply lines 25–26 to every row and average.</div>
+<div class="checkpoint">
+<div class="rc"><p class="q">You run <code>simulate_fifo</code> on <code>{'X',0,6}</code>, <code>{'Y',0,3}</code>, <code>{'Z',0,1}</code> (in that order). Predict the five lines it prints.</p><div class="a">X 0–6, Y 6–9, Z 9–10.<br><code>Job X: Turnaround = 6, Response = 0</code><br><code>Job Y: Turnaround = 9, Response = 6</code><br><code>Job Z: Turnaround = 10, Response = 9</code><br><code>Average Turnaround: 8.33</code> (25/3)<br><code>Average Response: 5.00</code> (15/3)</div></div>
+<div class="rc"><p class="q">From memory, write the two lines inside the metrics loop that compute one job's turnaround and response from <code>struct job</code>.</p><div class="a"><code>int turnaround = jobs[i].completion_time - jobs[i].arrival;</code><br><code>int response = jobs[i].start_time - jobs[i].arrival;</code><br>Both subtract the <strong>arrival</strong>. Turnaround ends at completion; response ends at the first run.</div></div>
+<div class="rc"><p class="q">In <code>main()</code>, <code>simulate_sjf(jobs,3)</code> runs before the second <code>simulate_fifo(jobs,3)</code>. Why does that second FIFO run print the SJF numbers (8.67), not 14.00?</p><div class="a">The array is passed by pointer, and the SJF sort swaps the structs <strong>in place</strong>. After it, the array is in the order C, B, A, so "FIFO" just runs the jobs in that sorted order. To compare fairly, give each simulation its own copy of the jobs.</div></div>
+<div class="close">
+<p class="q">Which line correctly computes response time in <code>scheduler.c</code>?</p>
+<ul>
+<li data-true><code>jobs[i].start_time - jobs[i].arrival</code> <span class="why">Response = first run − arrival, and <code>start_time</code> is the first run.</span></li>
+<li><code>jobs[i].completion_time - jobs[i].arrival</code> <span class="why">That is turnaround (line 25). Response ends at the <strong>first run</strong>: <code>start_time</code>.</span></li>
+<li><code>jobs[i].completion_time - jobs[i].start_time</code> <span class="why">That is just how long the job ran once started, which is neither metric. Subtract the <strong>arrival</strong>.</span></li>
+<li><code>jobs[i].start_time - jobs[i].length</code> <span class="why">You subtract the <strong>arrival</strong>, not the job's length.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q"><code>simulate_fifo</code> gets A (length 4), B (length 7), C (length 2), all arriving at 0, in that order. After the clock loop, which is TRUE about C?</p>
+<ul>
+<li data-true>C's start_time is 11 and its completion_time is 13. <span class="why">The clock goes 0 → 4 (A) → 11 (B), so C starts at 11 and ends at 13.</span></li>
+<li>C's start_time is 0 and its completion_time is 2. <span class="why">That is the SJF order. <code>simulate_fifo</code> does not sort, so C waits behind A and B.</span></li>
+<li>C's start_time is 13 and its completion_time is 15. <span class="why">13 is when C <strong>completes</strong>, not when it starts. Line 17 records the clock <em>before</em> line 18 adds C's length: start = 11, completion = 11 + 2 = 13.</span></li>
+<li>C's start_time is 11 and its completion_time is 2. <span class="why">Line 19 stores the clock (<code>current_time</code>) after adding the length, not the length itself: 11 + 2 = <strong>13</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">You run your unchanged <code>simulate_fifo</code> on A (arrives 0, length 2) and B (arrives 5, length 3). Which is TRUE about the line it prints for B?</p>
+<ul>
+<li data-true><code>Job B: Turnaround = 0, Response = -3</code> <span class="why">The loop ignores arrivals, so B "starts" at 2 and completes at 5: 5 − 5 = 0 and 2 − 5 = −3. (Checked by running a copy.)</span></li>
+<li><code>Job B: Turnaround = 3, Response = 0</code> <span class="why">That is the correct answer on paper (B waits until 5, runs 5–8). The code never waits for the arrival, so it prints 0 and <strong>−3</strong>.</span></li>
+<li><code>Job B: Turnaround = 5, Response = 2</code> <span class="why">Those are B's raw completion and start times. The code does subtract the arrival (5): 0 and <strong>−3</strong>.</span></li>
+<li><code>Job B: Turnaround = 0, Response = 3</code> <span class="why">Sign slip: start (2) − arrival (5) = <strong>−3</strong>. A negative response is the giveaway that arrivals are ignored.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>STCF (Shortest Time-to-Completion First)</h2>
+<p>Add <strong>preemption</strong> to SJF. Also called <strong>Preemptive SJF (PSJF)</strong>. Whenever a new job enters the system, compare the remaining times of <em>all</em> jobs (including the one running) and run the one with the <strong>least time left</strong>.<span class="cite">Bilal slides, Ch 7, slide 9</span></p>
+<div data-gantt='{"lanes":[{"label":"STCF","segs":[["A",0,2],["B",2,5],["C",5,8],["A",8,18]]}],"arrivals":[["A",0],["B",2],["C",2]],"end":18}'></div>
+<p>At t = 2, A has 10 s left but B needs only 3, so A is preempted. Average turnaround = ((18 − 0) + (5 − 2) + (8 − 2)) / 3 = (18 + 3 + 6) / 3 = <strong>9 s</strong>. With jobs arriving at different times, STCF is optimal for average turnaround.</p>
+
+<h3>Worked example: draw SJF and STCF for the same jobs</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Job</th><th class="num">Arrival</th><th class="num">Burst</th></tr></thead>
+<tbody><tr><td>A</td><td class="num">0</td><td class="num">6</td></tr><tr><td>B</td><td class="num">1</td><td class="num">4</td></tr><tr><td>C</td><td class="num">2</td><td class="num">2</td></tr></tbody></table></div>
+<p><strong>Method:</strong> list every <em>decision point</em> and ask who should run. For SJF the only decision points are when a job <em>finishes</em>. For STCF they are when a job finishes <em>or a new job arrives</em>.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th class="num">t</th><th>Event</th><th>Non-preemptive SJF</th><th>Preemptive STCF (remaining times)</th></tr></thead>
+<tbody>
+<tr><td class="num">0</td><td>A arrives</td><td>Only A → run A</td><td>Only A → run A</td></tr>
+<tr><td class="num">1</td><td>B arrives</td><td>Not a decision point: A keeps going</td><td>A 5, <strong>B 4</strong> → preempt, run B</td></tr>
+<tr><td class="num">2</td><td>C arrives</td><td>A keeps going</td><td>A 5, B 3, <strong>C 2</strong> → run C</td></tr>
+<tr><td class="num">4</td><td>C done</td><td>A keeps going</td><td>A 5, <strong>B 3</strong> → run B</td></tr>
+<tr><td class="num">6</td><td>A done (SJF)</td><td>B 4, <strong>C 2</strong> → run C</td><td>(B still running)</td></tr>
+<tr><td class="num">7</td><td>B done (STCF)</td><td></td><td>Only A → run A</td></tr>
+<tr><td class="num">8</td><td>C done (SJF)</td><td>Only B → run B</td><td></td></tr>
+</tbody></table></div>
+
+<div data-gantt='{"lanes":[{"label":"SJF","segs":[["A",0,6],["C",6,8],["B",8,12]]},{"label":"STCF","segs":[["A",0,1],["B",1,2],["C",2,4],["B",4,7],["A",7,12]]}],"arrivals":[["A",0],["B",1],["C",2]],"end":12}'></div>
+
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Job</th><th class="num">Arrive</th><th class="num">First run</th><th class="num">Complete</th><th class="num">T</th><th class="num">R</th></tr></thead>
+<tbody>
+<tr><td rowspan="4"><strong>SJF</strong></td><td>A</td><td class="num">0</td><td class="num">0</td><td class="num">6</td><td class="num">6</td><td class="num">0</td></tr>
+<tr><td>B</td><td class="num">1</td><td class="num">8</td><td class="num">12</td><td class="num">11</td><td class="num">7</td></tr>
+<tr><td>C</td><td class="num">2</td><td class="num">6</td><td class="num">8</td><td class="num">6</td><td class="num">4</td></tr>
+<tr><td><em>Average</em></td><td></td><td></td><td></td><td class="num"><strong>23/3 ≈ 7.67</strong></td><td class="num"><strong>11/3 ≈ 3.67</strong></td></tr>
+<tr><td rowspan="4"><strong>STCF</strong></td><td>A</td><td class="num">0</td><td class="num">0</td><td class="num">12</td><td class="num">12</td><td class="num">0</td></tr>
+<tr><td>B</td><td class="num">1</td><td class="num">1</td><td class="num">7</td><td class="num">6</td><td class="num">0</td></tr>
+<tr><td>C</td><td class="num">2</td><td class="num">2</td><td class="num">4</td><td class="num">2</td><td class="num">0</td></tr>
+<tr><td><em>Average</em></td><td></td><td></td><td></td><td class="num"><strong>20/3 ≈ 6.67</strong></td><td class="num"><strong>0</strong></td></tr>
+</tbody></table></div>
+
+<div class="box exam"><span class="tag">This is how it's asked</span>
+"Draw Gantt charts for (a) non-preemptive SJF and (b) preemptive STCF, and compute response and turnaround for each process." Draw both charts on one shared time axis like above, mark arrivals with arrows, then fill the recipe table. In STCF, a preempted job's response time is from its <em>first</em> block; its completion is from its <em>last</em> block. If two jobs tie on remaining time, say which rule you used (the usual one: keep running the current job, otherwise the earlier arrival).</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">STCF. A arrives at 0 (burst 7), B at 2 (burst 3), C at 3 (burst 1). Give the timeline and the average turnaround and response.</p><div class="a">t = 2: B (3) &lt; A's 5 left → B runs. t = 3: C (1) &lt; B's 2 left → C runs. t = 4: B (2) &lt; A (5).<br>A 0–2 | B 2–3 | C 3–4 | B 4–6 | A 6–11.<br>Turnaround: A 11, B 6 − 2 = 4, C 4 − 3 = 1 → 16/3 ≈ <strong>5.33</strong>.<br>Response: all start the moment they arrive → <strong>0</strong>.</div></div>
+<div class="rc"><p class="q">What are the decision points for SJF, and for STCF?</p><div class="a">SJF: only when a job <strong>finishes</strong>. STCF: when a job finishes <strong>or a new job arrives</strong> (then compare remaining times of all jobs, including the running one).</div></div>
+<div class="close">
+<p class="q">STCF. A arrives at t = 0 (burst 6). B arrives at t = 3 (burst 4). Which is TRUE at t = 3?</p>
+<ul>
+<li data-true>A keeps running, because its 3 remaining units are less than B's 4. <span class="why">STCF compares <strong>remaining</strong> times: A has 6 − 3 = 3 left and B needs 4, so A finishes at 6 and B runs 6–10.</span></li>
+<li>B preempts A, because B's burst of 4 is less than A's burst of 6. <span class="why">STCF compares <strong>remaining</strong> time, not original bursts. A has only 6 − 3 = <strong>3</strong> left, so it keeps the CPU.</span></li>
+<li>B preempts A, because under STCF a newly arrived job always runs first. <span class="why">A newcomer runs only if it needs <strong>less</strong> time than the running job has left. Here 4 &gt; 3, so A continues.</span></li>
+<li>A keeps running, because STCF never preempts a job once it has started. <span class="why">Right outcome, wrong reason. STCF <strong>does</strong> preempt (that is what it adds to SJF); here it doesn't need to, since 3 &lt; 4.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>From your lab: STCF in C (stcf_scheduler.c)</h2>
+<p>Lab 3, Task 4: <code>stcf_scheduler.c</code> simulates STCF one time unit (tick) at a time. Your jobs were A (arrives 0, length 100), B and C (arrive 10, length 10 each).</p>
+<figure class="labcode" data-src="Labs/Lab 3/stcf_scheduler.c" data-lines="18-26" data-hl="21,22" data-caption="Every tick: among jobs that have arrived and are not finished, pick the least remaining time"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%203/stcf_scheduler.c">Labs/Lab 3/stcf_scheduler.c</a><span class="lc-span">lines 18–26</span></div><pre><span class="ln" data-n="18">    while(completed &lt; job_count){</span><span class="ln" data-n="19">        int chosen = -1;</span><span class="ln" data-n="20">        for (int i = 0; i &lt;job_count; i++){</span><span class="ln hl" data-n="21">            if (jobs[i].arrival &lt;= current_time &amp;&amp; !jobs[i].finished){</span><span class="ln hl" data-n="22">                if(chosen == -1 || jobs[i].remaining &lt; jobs[chosen].remaining){</span><span class="ln" data-n="23">                    chosen = i;</span><span class="ln" data-n="24">                }</span><span class="ln" data-n="25">            }</span><span class="ln" data-n="26">        }</span></pre><figcaption>Every tick: among jobs that have arrived and are not finished, pick the least remaining time</figcaption></figure>
+<p>This is the STCF rule from the section above: "compare the remaining times of <em>all</em> jobs (including the one running) and run the one with the least time left". Line 21 keeps only jobs that have <strong>arrived</strong> and aren't finished; line 22 keeps the smallest <code>remaining</code>. Because the code re-picks every tick, not only at arrivals, the running job is re-checked all the time, but the chart comes out the same: it can only lose the CPU when someone shorter has arrived.</p>
+<figure class="labcode" data-src="Labs/Lab 3/stcf_scheduler.c" data-lines="44-54" data-hl="45,46,51" data-caption="Run the chosen job for one tick; when remaining hits 0, record the completion time"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%203/stcf_scheduler.c">Labs/Lab 3/stcf_scheduler.c</a><span class="lc-span">lines 44–54</span></div><pre><span class="ln" data-n="44">        // time go up job time go down</span><span class="ln hl" data-n="45">        jobs[chosen].remaining--;</span><span class="ln hl" data-n="46">        current_time++;</span><span class="ln" data-n="47"> </span><span class="ln" data-n="48">        //if process done then completed</span><span class="ln" data-n="49">        if (jobs[chosen].remaining == 0){</span><span class="ln" data-n="50">            jobs[chosen].finished = 1;</span><span class="ln hl" data-n="51">            jobs[chosen].completion_time = current_time;</span><span class="ln" data-n="52">            completed++;</span><span class="ln" data-n="53">            printf(&quot;Time %d: Job %c completes\n&quot;, current_time, jobs[chosen].name);</span><span class="ln" data-n="54">        }</span></pre><figcaption>Run the chosen job for one tick; when remaining hits 0, record the completion time</figcaption></figure>
+<p>One tick = <code>remaining--</code> and <code>current_time++</code>. The completion time is stamped on line 51, and the first-run time is stamped once, on lines 35–36, only when <code>start_time</code> is still −1. So a preempted job keeps its <em>first</em> start, exactly like the recipe: response from the first block, completion from the last. Your write-up's output:</p>
+<pre><code>Time 0: Job A starts
+Time 10: Job A preempted (remaining 90)
+Time 10: Job B starts
+Time 20: Job B completes
+Time 20: Job C starts
+Time 30: Job C completes
+Time 30: Job A resumes (remaining: 90)
+Time 120: Job A completes
+Job A: Turnaround = 120, Response = 0
+Job B: Turnaround = 10, Response = 0
+Job C: Turnaround = 20, Response = 10
+Average Turnaround: 50.00
+Average Response: 3.33</code></pre>
+<p>Check it with the recipe: turnaround (120 + 10 + 20)/3 = 50, response (0 + 0 + 10)/3 = 3.33. C arrived at 10 but first ran at 20; B and C tied at 10 left, and B won because it is listed first.</p>
+<div class="labnote warn"><strong>Two differences from the exam rules.</strong> (1) <strong>Idle gap crash.</strong> If no job has arrived yet (say the first job arrives at 3), the loop ends with <code>chosen == -1</code> and the code then uses <code>jobs[-1]</code>. A copy with A arriving at 3 aborted with "stack smashing detected". Fix: right after the pick loop, <code>if (chosen == -1) { current_time++; continue; }</code>. (2) <strong>Ties.</strong> The strict <code>&lt;</code> on line 22 gives a tie to the job <em>listed first</em>, even if another job is running. The usual exam rule (see the box above) is to keep the running job. Example: B (arrives 0, length 6) is listed after A (arrives 2, length 4). At t = 2 both have 4 left, and your code preempts B for A. On paper, B keeps running. To match, start the pick with <code>chosen = last_index</code> when that job is unfinished, so only a strictly shorter job can take over.</div>
+<div class="labnote">Exam angle: "why is this preemptive?" The pick on lines 20–26 runs every tick and compares <code>remaining</code>, not the original <code>length</code>.</div>
+<div class="checkpoint">
+<div class="rc"><p class="q">You give <code>simulate_stcf</code> A (arrives 0, length 6), B (arrives 2, length 2), C (arrives 3, length 3). Predict the "Time …" lines and the two averages.</p><div class="a">t = 2: B (2) &lt; A's 4 left → A preempted. t = 3: C (3) is not less than B's 1 left → B keeps going. t = 4: C (3) &lt; A (4).<br><code>Time 0: Job A starts</code> · <code>Time 2: Job A preempted (remaining 4)</code> · <code>Time 2: Job B starts</code> · <code>Time 4: Job B completes</code> · <code>Time 4: Job C starts</code> · <code>Time 7: Job C completes</code> · <code>Time 7: Job A resumes (remaining: 4)</code> · <code>Time 11: Job A completes</code><br>Turnaround (11 + 2 + 4)/3 = <strong>5.67</strong>. Response (0 + 0 + 1)/3 = <strong>0.33</strong>. (Checked by running a copy.)</div></div>
+<div class="rc"><p class="q">What would go wrong if line 36 (<code>start_time = current_time</code>) ran every time a job is switched in (line 28), not only when line 35 finds <code>start_time == -1</code>?</p><div class="a">A preempted job would get a <strong>new</strong> start time when it resumes. For your run, A's start would become 30, so its response would print as 30 instead of <strong>0</strong>. Response must use the <strong>first</strong> run only.</div></div>
+<div class="close">
+<p class="q">Which change would turn <code>simulate_stcf</code> into non-preemptive SJF?</p>
+<ul>
+<li data-true>Only run the pick loop when the last job has finished (or nothing has run yet). <span class="why">SJF decides only when the running job <strong>finishes</strong>. Skipping the pick at other ticks means nobody can take over mid-run.</span></li>
+<li>Change <code>&lt;</code> to <code>&lt;=</code> on line 22. <span class="why">That only changes who wins a <strong>tie</strong>. The pick still runs every tick, so it is still preemptive.</span></li>
+<li>Compare <code>length</code> instead of <code>remaining</code> on line 22. <span class="why">The pick still runs every tick, so a job can still be thrown off mid-run. It just compares the wrong number.</span></li>
+<li>Remove the arrival check <code>jobs[i].arrival &lt;= current_time</code>. <span class="why">Then jobs from the future could be picked before they exist. That breaks it; it doesn't make it SJF.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">P (arrives 0, length 5) is listed before Q (arrives 0, length 5). Which is TRUE about what <code>simulate_stcf</code> does?</p>
+<ul>
+<li data-true>P runs 0–5, then Q runs 5–10. <span class="why">Tie at t = 0 → strict <code>&lt;</code> keeps the first listed (P). After one tick P has 4 left, less than Q's 5, so P never loses the CPU. (Checked by running a copy.)</span></li>
+<li>Q runs 0–5, then P runs 5–10. <span class="why">Q would win the tie only with <code>&lt;=</code> (the last equal job wins). With <code>&lt;</code>, P wins.</span></li>
+<li>P and Q swap every tick, like RR with a 1-tick slice. <span class="why">Once P runs one tick it has 4 left against Q's 5, so it is strictly shorter and keeps going.</span></li>
+<li>P runs 0–1, then Q preempts it and runs 1–6. <span class="why">Q would need <strong>less</strong> remaining time than P's 4 to preempt. 5 is not less than 4.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>"Which policy is this?" Reading a chart backwards</h2>
+<p>Here is a chart. A (2 units) arrives at 0; B (3 units) and C (5 units) both arrive at 1, with B first in line.</p>
+<div data-gantt='{"lanes":[{"label":"CPU","segs":[["A",0,2],["B",2,5],["C",5,10]]}],"arrivals":[["A",0],["B",1],["C",1]],"end":10}'></div>
+<p>Is it FIFO, SJF or STCF? <strong>All three.</strong> FIFO runs them in arrival order: A, B, C. SJF picks the shortest waiting job at t = 2: B (3) beats C (5). STCF would preempt A at t = 1 only if a newcomer were shorter than A's remaining 1 unit, and none is. All three policies produce the same chart, so all three are correct answers.</p>
+
+<div class="box exam"><span class="tag">Exam: "What type of scheduling policy is this?"</span>
+Past quizzes accepted <strong>several</strong> answers ("FIFO, SJF and STCF are all correct") whenever the orderings coincide. List <em>every</em> policy the chart is consistent with, using this test:
+<ol style="margin:.4rem 0 0">
+<li><strong>Is any job split into two or more blocks?</strong> Yes → preemptive (STCF or RR). FIFO and SJF are ruled out.</li>
+<li><strong>FIFO test:</strong> each time the CPU picks a job, is it the one that <em>arrived earliest</em> among those waiting?</li>
+<li><strong>SJF test:</strong> each time the CPU picks a job, is it the <em>shortest</em> among those waiting?</li>
+<li><strong>STCF test:</strong> passes the SJF test, <em>and</em> at every arrival the newcomer is <em>not</em> shorter than the running job's remaining time (otherwise STCF would have preempted).</li>
+</ol>
+Write down every policy that passes. If two jobs arrive at the same time, FIFO's order between them is their listed order.</div>
+
+<p>Contrast: with A(0, 6), B(1, 4), C(2, 2) from the worked example, FIFO gives A B C, SJF gives A C B and STCF splits A and B, so each chart identifies exactly one policy.</p>
+<div data-gantt='{"lanes":[{"label":"FIFO","segs":[["A",0,6],["B",6,10],["C",10,12]]},{"label":"SJF","segs":[["A",0,6],["C",6,8],["B",8,12]]},{"label":"STCF","segs":[["A",0,1],["B",1,2],["C",2,4],["B",4,7],["A",7,12]]}],"arrivals":[["A",0],["B",1],["C",2]],"end":12}'></div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">A (burst 3) arrives at 0, B (burst 6) at 1, C (burst 2) at 2. The CPU ran A 0–3, C 3–5, B 5–11. Which of FIFO, SJF and STCF could have produced this chart?</p><div class="a"><strong>SJF and STCF, not FIFO.</strong> FIFO would pick B at t = 3 (it arrived before C). SJF picks C (2 &lt; 6). STCF: at t = 1, B (6) is not shorter than A's 2 left; at t = 2, C (2) is not shorter than A's 1 left, so no preemption, and the rest matches SJF.</div></div>
+<div class="rc"><p class="q">Reading a Gantt chart: what single check rules out FIFO and SJF straight away?</p><div class="a">If <strong>any job is split into two or more blocks</strong>, the policy is preemptive (STCF or RR), so FIFO and SJF are ruled out.</div></div>
+<div class="close">
+<p class="q">A (burst 4) arrives at 0, B (burst 6) at 1, C (burst 3) at 2. The CPU ran A 0–4 | B 4–10 | C 10–13. Of FIFO, SJF and STCF, which could have produced this chart?</p>
+<ul>
+<li data-true>FIFO only. <span class="why">At t = 4 both B and C wait. FIFO picks B (arrived first). SJF and STCF would pick C (3 &lt; 6). (RR with a slice of 6 or more would also give this chart, since it then never cuts a job short.)</span></li>
+<li>FIFO and SJF only. <span class="why">SJF picks the <strong>shortest</strong> waiting job at t = 4: C (3), not B (6).</span></li>
+<li>FIFO, SJF and STCF. <span class="why">SJF and STCF both pick <strong>C</strong> at t = 4 (3 &lt; 6), so the chart would show C 4–7, B 7–13.</span></li>
+<li>SJF and STCF only. <span class="why">Running B before C is arrival order, which is <strong>FIFO</strong>; shortest-first would run C first.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">A (burst 4) arrives at 0, B (burst 5) at 1, C (burst 1) at 2. The CPU ran A 0–4 | C 4–5 | B 5–10. Of FIFO, SJF and STCF, which could have produced this chart?</p>
+<ul>
+<li data-true>SJF only. <span class="why">At t = 4 SJF picks C (1) over B (5). STCF would have preempted A at t = 2 (C's 1 &lt; A's 2 left), and FIFO would run B before C.</span></li>
+<li>SJF and STCF only. <span class="why">At t = 2, C needs 1 and A has 4 − 2 = <strong>2</strong> left, so STCF <strong>preempts</strong>: A 0–2, C 2–3, A 3–5, B 5–10.</span></li>
+<li>FIFO and SJF only. <span class="why">FIFO runs in arrival order: B (arrived at 1) before C (arrived at 2). Here C ran first.</span></li>
+<li>FIFO, SJF and STCF. <span class="why">An unsplit chart can still rule STCF out: at t = 2, C (1) &lt; A's 2 left, so STCF would have preempted. FIFO is out too (C ran before B).</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>A new metric: response time</h2>
+<p>Time-shared machines have users sitting at terminals, and they care about how quickly the system <em>responds</em>, not when it finishes.<span class="cite">Bilal slides, Ch 7, slide 12</span> STCF and its relatives are bad at this. Three jobs A, B, C of 4 s each, all arriving at 0, under SJF:</p>
+<div data-gantt='{"lanes":[{"label":"SJF","segs":[["A",0,4],["B",4,8],["C",8,12]]}],"end":12}'></div>
+<p>Average response = (0 + 4 + 8) / 3 = <strong>4 s</strong>. C waits 8 s before running a single instruction. Imagine typing and waiting 8 s for a letter to appear.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Why is SJF bad for response time? Use three 5-second jobs that all arrive at t = 0.</p><div class="a">SJF runs them back to back: first runs at 0, 5, 10 → average response = 15/3 = <strong>5 s</strong>. The last job waits 10 s before running anything. (RR with a 1-s slice gives (0 + 1 + 2)/3 = 1 s.)</div></div>
+<div class="close">
+<p class="q">Four jobs of 3 s each all arrive at t = 0 and run under SJF. Which is TRUE?</p>
+<ul>
+<li data-true>The average response time is 4.5 s. <span class="why">They start at 0, 3, 6, 9 → (0 + 3 + 6 + 9)/4 = 18/4 = 4.5.</span></li>
+<li>The average response time is 7.5 s. <span class="why">That is the average <strong>turnaround</strong>, (3 + 6 + 9 + 12)/4. Response uses the first-run times: 18/4 = <strong>4.5</strong>.</span></li>
+<li>The average response time is 9 s. <span class="why">9 s is only the <strong>last</strong> job's response. Average: (0 + 3 + 6 + 9)/4 = <strong>4.5</strong>.</span></li>
+<li>The average response time is 1.5 s. <span class="why">That is <strong>RR with a 1-s slice</strong>: (0 + 1 + 2 + 3)/4. SJF runs them back to back: <strong>4.5</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which is TRUE about response time?</p>
+<ul>
+<li data-true>It is first-run time − arrival time, and STCF is not particularly good at it. <span class="why">STCF runs short jobs to completion first, so jobs that arrive together wait a long time for their first turn.</span></li>
+<li>It is completion time − arrival time, and STCF is not particularly good at it. <span class="why">Completion − arrival is <strong>turnaround</strong>. Response ends at the <strong>first run</strong>.</span></li>
+<li>It is first-run time − arrival time, and STCF is the optimal policy for it. <span class="why">STCF is optimal for <strong>turnaround</strong>. For response it is poor; <strong>RR</strong> is the response-time policy.</span></li>
+<li>It is first-run time − arrival time, and it matters most on batch systems with no users waiting. <span class="why">It arose with <strong>time-shared</strong> machines, where users sit at terminals waiting for the system to respond.</span></li>
+</ul>
+</div>
+</div>
+
+<h2>Round Robin (RR)</h2>
+<p>RR is <strong>time slicing</strong>: run a job for one <strong>time slice</strong> (also called a <strong>scheduling quantum</strong>), then switch to the next job in the run queue, and keep cycling until all jobs are done. The time slice must be a <strong>multiple of the timer-interrupt period</strong> (Lesson 4's timer is what makes RR possible).<span class="cite">Bilal slides, Ch 7, slide 13</span></p>
+<div data-gantt='{"lanes":[{"label":"RR q=1","segs":[["A",0,1],["B",1,2],["C",2,3],["A",3,4],["B",4,5],["C",5,6],["A",6,7],["B",7,8],["C",8,9],["A",9,10],["B",10,11],["C",11,12]]},{"label":"RR q=2","segs":[["A",0,2],["B",2,4],["C",4,6],["A",6,8],["B",8,10],["C",10,12]]}],"end":12}'></div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Same three 4-s jobs</th><th class="num">Avg response</th><th class="num">Avg turnaround</th></tr></thead>
+<tbody>
+<tr><td>SJF (= FIFO = STCF here)</td><td class="num">(0+4+8)/3 = 4</td><td class="num">(4+8+12)/3 = 8</td></tr>
+<tr><td>RR, quantum 2</td><td class="num">(0+2+4)/3 = 2</td><td class="num">(8+10+12)/3 = 10</td></tr>
+<tr><td>RR, quantum 1</td><td class="num">(0+1+2)/3 = <strong>1</strong></td><td class="num">(10+11+12)/3 = <strong>11</strong></td></tr>
+</tbody></table></div>
+<p>RR is great for response time and terrible for turnaround: it stretches every job out as long as possible. OSTEP's general point: <strong>any fair policy</strong> (one that divides the CPU evenly over short timescales) performs poorly on turnaround. You can be fair or fast, not both.</p>
+
+<div class="box key"><span class="tag">The fundamental trade-off</span>
+<strong>SJF / STCF</strong> optimise <em>turnaround</em> but hurt <em>response</em>. <strong>RR</strong> optimises <em>response</em> (and fairness) but hurts <em>turnaround</em>. Neither wins on both.</div>
+
+<h3>How long should the time slice be?</h3>
+<p>Every switch costs time: saving and restoring registers (Lesson 4), and also flushing CPU caches, TLBs and branch predictors, which then have to warm up again for the new job.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Shorter time slice</th><th>Longer time slice</th></tr></thead>
+<tbody><tr><td>Better response time<br>But the cost of context switching <strong>dominates</strong> overall performance</td><td><strong>Amortizes</strong> the cost of switching<br>But worse response time (RR drifts towards FIFO)</td></tr></tbody></table></div>
+<p><strong>Amortization</strong> means paying a fixed cost less often. OSTEP's numbers: with a 10 ms slice and a 1 ms switch, roughly 10% of the time is wasted on switching. Raise the slice to 100 ms and the waste drops below 1%.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched.pdf">OSTEP §7.7</a> Choosing the slice is a trade-off for the system designer: long enough to amortize switching, short enough to stay responsive.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Round Robin, time slice 2. A (3), B (5), C (2) all arrive at t = 0, in that order. Give the timeline, the average response and the average turnaround.</p><div class="a">A 0–2 | B 2–4 | C 4–6 (done) | A 6–7 (done) | B 7–9 | B 9–10 (done).<br>Response: (0 + 2 + 4)/3 = <strong>2</strong>.<br>Turnaround: A 7, B 10, C 6 → 23/3 ≈ <strong>7.67</strong>.</div></div>
+<div class="rc"><p class="q">Round Robin: what goes wrong with a very short time slice, and with a very long one?</p><div class="a">Too short: <strong>context-switch cost dominates</strong> (saving/restoring registers, cold caches/TLB). Too long: <strong>response time gets worse</strong> and RR drifts towards FIFO. A longer slice <em>amortizes</em> the switch cost (pays it less often).</div></div>
+<div class="rc"><p class="q">RR uses a 19 ms time slice and each context switch costs 1 ms. What percentage of CPU time is wasted on switching?</p><div class="a">Each cycle = 19 + 1 = 20 ms, of which 1 ms is switching: 1/20 = <strong>5%</strong>.</div></div>
+<div class="close">
+<p class="q">Which is TRUE about the Round Robin time slice?</p>
+<ul>
+<li data-true>The time slice must be a multiple of the timer-interrupt period. <span class="why">The OS only gets control back when the timer fires, so a slice can only end on a timer tick (10 ms timer → 10, 20, 30 ms, …).</span></li>
+<li>The timer-interrupt period must be a multiple of the time slice. <span class="why">Swapped. The <strong>slice</strong> is a multiple of the <strong>timer period</strong>.</span></li>
+<li>The time slice must be shorter than the timer-interrupt period. <span class="why">The OS can only switch when the timer fires, so the slice can't end between ticks. It is a whole <strong>multiple</strong> of the period.</span></li>
+<li>The time slice can be any length, because RR doesn't rely on the timer interrupt. <span class="why">RR depends on the timer to take the CPU back (Lesson 4), so the slice must be a <strong>multiple of the timer period</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which is TRUE about the trade-off between the policies?</p>
+<ul>
+<li data-true>RR optimises response time but hurts turnaround; SJF/STCF optimise turnaround but hurt response. <span class="why">That is the fundamental trade-off: neither kind of policy wins on both metrics.</span></li>
+<li>RR optimises turnaround but hurts response; SJF/STCF optimise response but hurt turnaround. <span class="why">Swapped. <strong>RR</strong> is the response-time policy; <strong>SJF/STCF</strong> are the turnaround policies.</span></li>
+<li>RR optimises both response and turnaround; only its context-switch cost holds it back. <span class="why">RR stretches every job out, so its turnaround is among the worst (three 4-s jobs: RR(1) 11 s vs SJF 8 s).</span></li>
+<li>STCF optimises both turnaround and response, because it always runs the shortest job. <span class="why">Jobs that arrive together still wait their turn: three 4-s jobs → STCF response (0 + 4 + 8)/3 = 4 s vs RR's 1 s.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Three jobs of 6 s each arrive at t = 0. Round Robin with a 2-s slice. Which is TRUE?</p>
+<ul>
+<li data-true>Average response is 2 s and average turnaround is 16 s. <span class="why">First runs at 0, 2, 4 → 6/3 = 2. The third round ends A at 14, B at 16, C at 18 → 48/3 = 16.</span></li>
+<li>Average response is 2 s and average turnaround is 12 s. <span class="why">12 is <strong>SJF's</strong> turnaround, (6 + 12 + 18)/3. Under RR the jobs finish at 14, 16, 18 → <strong>16</strong>.</span></li>
+<li>Average response is 6 s and average turnaround is 16 s. <span class="why">6 is <strong>SJF's</strong> response, (0 + 6 + 12)/3. Under RR they first run at 0, 2, 4 → <strong>2</strong>.</span></li>
+<li>Average response is 2 s and average turnaround is 18 s. <span class="why">18 is when the <strong>last</strong> job finishes. The average is (14 + 16 + 18)/3 = <strong>16</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which is TRUE about amortizing the context-switch cost in RR?</p>
+<ul>
+<li data-true>A longer slice amortizes the switch cost: the same fixed cost is paid less often. <span class="why">With a 1 ms switch, a 10 ms slice wastes about 10% and a 100 ms slice under 1%. The price is worse response time.</span></li>
+<li>A shorter slice amortizes the switch cost: each switch becomes cheaper. <span class="why">The cost of one switch doesn't depend on the slice. Amortizing means paying it <strong>less often</strong>, which needs a <strong>longer</strong> slice.</span></li>
+<li>A longer slice amortizes the switch cost, and it also improves response time. <span class="why">A longer slice makes response time <strong>worse</strong> (RR drifts towards FIFO). That is the trade-off.</span></li>
+<li>A longer slice amortizes the switch cost by making each switch faster. <span class="why">Each switch costs the same; it just happens <strong>less often</strong>.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Try it: the scheduling simulator</h2>
+<p>Four jobs with staggered arrivals. Click each policy and watch the chart and the averages change. Then try these:</p>
+<ol>
+<li>Which policy gives the lowest <em>average turnaround</em>? Which gives the lowest <em>average response</em>? (They shouldn't be the same.)</li>
+<li>In RR, raise the quantum to 10. What does RR turn into?</li>
+<li>Open "Edit the jobs" and type in the worked example (A 0 6, B 1 4, C 2 2) to check the tables above.</li>
+</ol>
+<div data-sim='{"jobs":[{"name":"A","arrival":0,"burst":6},{"name":"B","arrival":1,"burst":2},{"name":"C","arrival":2,"burst":8},{"name":"D","arrival":4,"burst":3}],"policy":"FIFO","q":2,"policies":["FIFO","SJF","STCF","RR"]}'></div>
+<details class="recall"><summary>What you should have seen</summary>
+<div>Average turnaround: FIFO 10.5 · SJF 9.25 · <strong>STCF 8.25</strong> · RR(q=2) 11.25. Average response: FIFO 5.75 · SJF 4.5 · STCF 2.25 · <strong>RR(q=2) 1.75</strong>. STCF wins turnaround, RR wins response. With quantum 10, no job is ever cut short, so RR runs jobs in arrival order, exactly like FIFO.</div></details>
+
+<!-- ======================================================== -->
+<h2>Incorporating I/O</h2>
+<p>Relax the "no I/O" assumption. When a job starts an I/O request, it is <strong>blocked</strong> waiting for it to finish, so the scheduler should run another job on the CPU. When the I/O completes, an <strong>interrupt</strong> is raised and the OS moves the job from <strong>blocked</strong> back to <strong>ready</strong>.<span class="cite">Bilal slides, Ch 7, slide 18</span></p>
+<p>Example: A needs 30 ms of CPU and B needs 40 ms. A runs 10 ms, then does a 10 ms I/O, then repeats (three CPU bursts, two I/Os). B is pure CPU, no I/O. If the scheduler treats A as one indivisible job, the CPU sits idle during A's I/O:</p>
+<div data-gantt='{"lanes":[{"label":"CPU","segs":[["A",0,10],["-",10,20],["A",20,30],["-",30,40],["A",40,50],["B",50,90]]},{"label":"Disk","segs":[["A",10,20],["A",30,40]]}],"end":90}'></div>
+<p class="small">Poor use of resources: everything done at 90 ms, with the CPU idle for 20 ms.</p>
+<p>The fix: treat each 10 ms CPU burst of A as its own small job. With STCF, each time a 10 ms burst of A becomes ready it is shorter than what B has left, so it preempts B; while A waits for the disk, B runs:</p>
+<div data-gantt='{"lanes":[{"label":"CPU","segs":[["A",0,10],["B",10,20],["A",20,30],["B",30,40],["A",40,50],["B",50,70]]},{"label":"Disk","segs":[["A",10,20],["A",30,40]]}],"end":90}'></div>
+<p class="small">Overlap allows better use of resources: everything done at 70 ms instead of 90, and the CPU is never idle. Interactive (I/O-heavy) jobs run often; CPU-heavy jobs soak up the gaps.</p>
+
+<h3>The last assumption: we don't know the run-time</h3>
+<p>SJF and STCF need to know how long each job will run, and a real OS has no oracle. The next lesson's scheduler, <a href="0006-mlfq.html">MLFQ</a>, uses the <em>recent past</em> to predict the future.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">A job starts an I/O request. Which state does it enter, what should the scheduler do, and what happens when the I/O completes?</p><div class="a">It becomes <strong>Blocked</strong>, so the scheduler should <strong>run another job</strong> instead of idling. When the I/O finishes, an <strong>interrupt</strong> fires and the OS moves the job from Blocked back to <strong>Ready</strong>.</div></div>
+<div class="rc"><p class="q">Interactive job A alternates 10 ms of CPU with 10 ms of I/O; job B is pure CPU. How does STCF overlap them?</p><div class="a">Treat <strong>each 10 ms CPU burst of A as its own job</strong>. When a burst is ready it is shorter than B's remaining time, so it runs first; while A waits for the disk, B runs. The CPU never idles.</div></div>
+<div class="close">
+<p class="q">A running job issues an I/O request. Which is TRUE?</p>
+<ul>
+<li data-true>It becomes blocked, the scheduler runs another job, and when the I/O completes an interrupt moves it back to ready. <span class="why">Bilal's slide: blocked while waiting, another job gets the CPU, then interrupt → blocked to ready.</span></li>
+<li>It becomes blocked, the scheduler runs another job, and when the I/O completes an interrupt moves it straight back to running. <span class="why">There is no Blocked → Running arrow. It goes to <strong>ready</strong> and waits for the scheduler.</span></li>
+<li>It becomes ready, the scheduler runs another job, and when the I/O completes an interrupt moves it back to running. <span class="why">A job waiting for I/O can't use the CPU, so it is <strong>blocked</strong>, not ready.</span></li>
+<li>It becomes blocked, the CPU waits idle until the I/O completes, and then an interrupt moves it back to ready. <span class="why">Idling wastes the CPU. The scheduler should <strong>run another job</strong> during the I/O.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">A needs 15 ms of CPU: it runs 5 ms, does a 5 ms I/O, and repeats (three CPU bursts, two I/Os). B needs 20 ms of CPU and does no I/O. Compare running A completely first and then B, with overlapping (STCF treating each 5 ms burst of A as a job). Which is TRUE?</p>
+<ul>
+<li data-true>Without overlap all work is done at 45 ms; with overlap, at 35 ms. <span class="why">No overlap: 15 CPU + 10 idle + 20 = 45. Overlap: A 0–5, B 5–10, A 10–15, B 15–20, A 20–25, B 25–35. The CPU never idles, so 15 + 20 = 35.</span></li>
+<li>Without overlap all work is done at 45 ms; with overlap, at 25 ms. <span class="why">25 ms is when <strong>A</strong> finishes. B still has 10 ms left: it runs 25–35, so everything is done at <strong>35</strong>.</span></li>
+<li>Without overlap all work is done at 35 ms; with overlap, at 25 ms. <span class="why">Without overlap the CPU idles during A's two I/Os: 15 + <strong>10</strong> + 20 = <strong>45</strong>. With overlap: <strong>35</strong>.</span></li>
+<li>Without overlap all work is done at 50 ms; with overlap, at 35 ms. <span class="why">A does only <strong>two</strong> I/Os (between its three bursts): 15 + 2 × 5 + 20 = <strong>45</strong>.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>SJF in pseudocode</h2>
+<p>If every job arrives at time 0, SJF is just "sort, then run in order":</p>
+<pre><code>SJF(jobs):                          # all jobs arrive at time 0
+    sort jobs by burst, ascending   # ties: earlier arrival first
+    time = 0
+    for each job in jobs:
+        job.start  = time
+        time       = time + job.burst      # runs to completion
+        job.finish = time
+        job.turnaround = job.finish - job.arrival
+        job.response   = job.start  - job.arrival</code></pre>
+<p>With different arrival times you can't sort once up front; pick the shortest job <em>that has already arrived</em> each time the CPU becomes free:</p>
+<pre><code>SJF(jobs):                          # general arrivals, non-preemptive
+    time = 0
+    while some job is unfinished:
+        ready = unfinished jobs with arrival &lt;= time
+        if ready is empty:
+            time = earliest arrival among unfinished jobs   # CPU idle
+            continue
+        job = job in ready with the smallest burst
+        job.start  = time
+        time       = time + job.burst      # no preemption
+        job.finish = time</code></pre>
+<p class="small">For STCF, change two things: choose by <em>remaining</em> time, and only run the chosen job until it finishes <em>or the next job arrives</em>, whichever comes first.</p>
+
+<div class="box exam"><span class="tag">This is how it's asked</span>
+"Write short pseudocode for SJF. Focus on sorting jobs by burst time and executing them in order." The first version above earns full marks. Must-haves: <strong>sort by burst ascending</strong>, a <strong>running clock</strong>, <strong>finish = clock after the burst</strong>, then turnaround and response.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Write SJF pseudocode for jobs that all arrive at t = 0. What are the must-have steps?</p><div class="a"><pre><code>sort jobs by burst ascending
+time = 0
+for each job:
+    job.start  = time
+    time      += job.burst
+    job.finish = time
+    job.turnaround = job.finish - job.arrival
+    job.response   = job.start  - job.arrival</code></pre>Must-haves: <strong>sort by burst</strong>, a <strong>running clock</strong>, <strong>finish = clock after the burst</strong>, then T and R.</div></div>
+<div class="rc"><p class="q">SJF with different arrival times: why can't you just sort once at the start, and what do you do instead?</p><div class="a">A short job may not have arrived yet. Each time the CPU becomes free, pick the <strong>shortest job that has already arrived</strong>; if none has arrived, jump the clock to the next arrival (the CPU idles).</div></div>
+<div class="close">
+<p class="q">All jobs arrive at t = 0. Which is the correct core of the SJF pseudocode?</p>
+<ul>
+<li data-true>Sort by burst ascending; then for each job: <code>start = time</code>, <code>time += burst</code>, <code>finish = time</code>. <span class="why">Record the start before the clock moves, run the whole burst (no preemption), then record the finish.</span></li>
+<li>Sort by burst descending; then for each job: <code>start = time</code>, <code>time += burst</code>, <code>finish = time</code>. <span class="why">Shortest first means <strong>ascending</strong>. Descending runs the longest job first, the worst order.</span></li>
+<li>Sort by burst ascending; then for each job: <code>time += burst</code>, <code>start = time</code>, <code>finish = time</code>. <span class="why">Wrong order: <code>start</code> must be recorded <strong>before</strong> adding the burst, or every job's start equals its finish.</span></li>
+<li>Sort by arrival ascending; then for each job: <code>start = time</code>, <code>time += burst</code>, <code>finish = time</code>. <span class="why">Sorting by arrival is <strong>FIFO</strong>. SJF sorts by <strong>burst</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">SJF with different arrival times. Which is TRUE about the general loop?</p>
+<ul>
+<li data-true>Each time the CPU is free, pick the shortest job that has already arrived; if none has, jump the clock to the next arrival. <span class="why">Only arrived jobs can run; if none is waiting, the CPU idles until the next arrival.</span></li>
+<li>Each time the CPU is free, pick the shortest unfinished job, even if it hasn't arrived yet. <span class="why">A job can't run before it <strong>arrives</strong>. Pick from jobs with arrival ≤ time.</span></li>
+<li>Each time a new job arrives, pick the shortest job that has already arrived, preempting the running job if needed. <span class="why">Deciding at every arrival with preemption is <strong>STCF</strong>. SJF decides only when the CPU is <strong>free</strong>.</span></li>
+<li>Each time the CPU is free, pick the shortest job that has already arrived; if none has, end the loop. <span class="why">Jobs may still be on their way. <strong>Jump the clock</strong> to the earliest unfinished arrival and continue.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Side by side</h2>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>FIFO / FCFS</th><th>SJF</th><th>STCF / PSJF</th><th>Round Robin</th></tr></thead>
+<tbody>
+<tr><td>Rule</td><td>First job to arrive runs first</td><td>Shortest burst runs first</td><td>Least time <em>left</em> runs, with preemption</td><td>Fixed time slice, cycling through the queue</td></tr>
+<tr><td>Preemptive?</td><td>No</td><td>No</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Best at</td><td>Simplicity</td><td>Turnaround (same arrival)</td><td>Turnaround (optimal)</td><td>Response time, fairness</td></tr>
+<tr><td>Weak point</td><td>Convoy effect</td><td>Convoy returns with late arrivals</td><td>Poor response time</td><td>Poor turnaround</td></tr>
+<tr><td>Needs run-time?</td><td>No</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+</tbody></table></div>
+<p class="small">Adapted from Dr. Zafar's summary slide.<span class="cite">Zafar slides, Ch 7, slide 21</span></p>
+
+<div class="box exam"><span class="tag">Matching questions</span>
+Past papers ask you to match algorithms to one-line characteristics. Memorise the "Rule" row word for word: FCFS → <em>first job to arrive is first to run</em>; SJF → <em>shortest burst time</em>; STCF → <em>preemption, least time left</em>; RR → <em>time slice / quantum</em>; MLFQ (next lesson) → <em>multiple priority queues with different time slices</em>.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Of FIFO, SJF, STCF and Round Robin: which are preemptive, and which need to know run-times in advance?</p><div class="a">Preemptive: <strong>STCF and RR</strong>. Need run-times: <strong>SJF and STCF</strong>. (FIFO is neither; RR is preemptive but needs no run-times.)</div></div>
+<div class="rc"><p class="q">Give the one-line rule for each: FCFS, SJF, STCF, RR.</p><div class="a">FCFS: <strong>first job to arrive runs first</strong>. SJF: <strong>shortest burst first, run to completion</strong>. STCF: <strong>preemption, least time left runs</strong>. RR: <strong>fixed time slice (quantum), cycle through the queue</strong>.</div></div>
+<div class="close">
+<p class="q">Which is TRUE about preemption?</p>
+<ul>
+<li data-true>STCF and RR are preemptive; FIFO and SJF run each job to completion. <span class="why">STCF preempts when a shorter job arrives; RR preempts when the slice ends. FIFO and SJF never take the CPU away.</span></li>
+<li>SJF and RR are preemptive; FIFO and STCF run each job to completion. <span class="why">SJF and STCF are swapped: STCF is <strong>preemptive</strong> SJF, and plain SJF is non-preemptive.</span></li>
+<li>Only RR is preemptive; FIFO, SJF and STCF run each job to completion. <span class="why"><strong>STCF</strong> is preemptive too: it switches whenever a newcomer needs less than the running job has left.</span></li>
+<li>SJF, STCF and RR are preemptive; only FIFO runs each job to completion. <span class="why"><strong>SJF</strong> is non-preemptive: once a job starts, it runs to completion.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Practice</h2>
+<p>Use the recipe. Work on paper first, then check.</p>
+<p class="score" data-score></p>
+
+<p>Questions 1–2 use this chart. Arrivals: X at 0 (4 units), Y at 2 (3 units), Z at 3 (5 units).</p>
+<div data-gantt='{"lanes":[{"label":"CPU","segs":[["X",0,4],["Y",4,7],["Z",7,12]]}],"arrivals":[["X",0],["Y",2],["Z",3]],"end":12}'></div>
+
+<div class="num" data-answer="6">
+<p class="q">1. What is the average turnaround time?</p>
+<div class="why">X: 4 − 0 = 4. Y: 7 − 2 = 5. Z: 12 − 3 = 9. Average = 18 / 3 = <strong>6</strong>.</div>
+</div>
+
+<div class="num" data-answer="2">
+<p class="q">2. What is the average response time?</p>
+<div class="why">X: 0 − 0 = 0. Y: 4 − 2 = 2. Z: 7 − 3 = 4. Average = 6 / 3 = <strong>2</strong>. (This chart is consistent with FIFO, SJF <em>and</em> STCF: in arrival order, shortest-first at t = 4 and t = 7, and no newcomer is shorter than X's remaining time.)</div>
+</div>
+
+<div class="mcq" data-correct="1">
+<p class="q">3. X (4 units) arrives at 0, Y (1 unit) at 2, Z (3 units) at 3. The CPU ran X 0–4, Y 4–5, Z 5–8. Which policies could have produced this chart?</p>
+<button>STCF only, nothing else here</button>
+<button>FIFO and SJF, not STCF</button>
+<button>All three: FIFO, SJF, STCF</button>
+<button>SJF and STCF, not FIFO</button>
+<div class="why">Arrival order is X, Y, Z, so FIFO fits. At t = 4, Y (1) is shorter than Z (3), so SJF fits. But at t = 2, Y needs 1 unit while X has 2 left, so <strong>STCF would have preempted X</strong> (X 0–2, Y 2–3, X 3–5, Z 5–8). So: FIFO and SJF only.</div>
+</div>
+
+<div class="num" data-answer="17/3" data-tol="0.01">
+<p class="q">4. P1 arrives at 0 (burst 8), P2 at 1 (burst 3), P3 at 2 (burst 1). Under <strong>STCF</strong>, what is the average turnaround time? (A fraction like 20/3 is fine.)</p>
+<div class="why">t = 0: run P1. t = 1: P2 (3) &lt; P1's 7 left → preempt, run P2. t = 2: P3 (1) &lt; P2's 2 left → preempt, run P3 2–3. t = 3: P2 (2 left) &lt; P1 (7) → P2 runs 3–5. P1 runs 5–12. Turnaround: P1 12 − 0 = 12, P2 5 − 1 = 4, P3 3 − 2 = 1 → 17/3 ≈ <strong>5.67</strong>. (Non-preemptive SJF would give P1 0–8, P3 8–9, P2 9–12 → (8 + 11 + 7)/3 = 26/3 ≈ 8.67.)</div>
+</div>
+
+<div class="num" data-answer="2">
+<p class="q">5. A (5 units), B (3 units), C (4 units) all arrive at 0, in that order. Round Robin, quantum 2. What is the average <strong>response</strong> time?</p>
+<div class="why">Order: A 0–2, B 2–4, C 4–6, A 6–8, B 8–9, C 9–11, A 11–12. First runs at 0, 2, 4 → (0 + 2 + 4)/3 = <strong>2</strong>. (Average turnaround is (12 + 9 + 11)/3 ≈ 10.67, much worse than SJF's 22/3 ≈ 7.33.)</div>
+</div>
+
+<div class="num" data-answer="10" data-tol="0.02">
+<p class="q">6. A RR system uses a 9 ms time slice, and each context switch costs 1 ms. What percentage of CPU time is wasted on switching? (Each cycle = one slice + one switch.)</p>
+<div class="why">Each 10 ms cycle has 1 ms of switching: 1/10 = <strong>10%</strong>. Raising the slice to 99 ms gives 1/100 = 1%. That is amortization: pay the fixed cost less often.</div>
+</div>
+
+<details class="recall"><summary>7. Match: FCFS, SJF, STCF, RR with (a) uses preemption to always run the job with the least time left, (b) runs each job for a fixed slice and cycles, (c) the first job to arrive runs first, (d) chooses the job with the shortest burst and runs it to completion.</summary>
+<div>FCFS → (c). SJF → (d). STCF → (a). RR → (b). Key words: FCFS = <em>arrival order</em>; SJF = <em>shortest burst, non-preemptive</em>; STCF = <em>preemptive, least remaining</em>; RR = <em>quantum</em>.</div></details>
+
+<details class="recall"><summary>8. Write short pseudocode for SJF that computes each job's finish, turnaround and response time (assume all jobs arrive at 0).</summary>
+<div><pre><code>sort jobs by burst ascending
+time = 0
+for each job in jobs:
+    job.start = time
+    time += job.burst
+    job.finish = time
+    job.turnaround = job.finish - job.arrival
+    job.response   = job.start  - job.arrival</code></pre></div></details>
+
+<!-- ======================================================== -->
+<div class="source"><span class="tag">Primary source: read this next</span>
+<p style="margin:.3rem 0 0"><a href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched.pdf">OSTEP Chapter 7: Scheduling: Introduction</a> (≈12 pages, very readable). The homework simulator <code>scheduler.py</code> it mentions works just like the simulator above.</p></div>
+
+<p class="ask">💬 Something unclear? Ask me (your Claude teacher) anything, e.g. <em>"give me 3 more charts to identify the policy"</em> or <em>"make up an STCF question with 4 jobs and check my answer"</em>.</p>
+
+<nav class="nextprev"><a href="0004-limited-direct-execution.html">← Lesson 4 · Limited direct execution</a><a href="0006-mlfq.html">Lesson 6 · MLFQ →</a></nav>
+<p class="small" style="text-align:center;font-family:var(--sans)"><a href="../reference/cheatsheet.html">Cheat sheet</a> · <a href="../reference/glossary.html">Glossary</a></p>
+</main>
+</body>
+</html>

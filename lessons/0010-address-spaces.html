@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Address Spaces</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/quiz.js" defer></script>
+<script src="../assets/recall.js" defer></script>
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">← Course map</a><span>Lesson 10 of 13 · OSTEP Ch 13 · ~15 min</span></nav>
+
+<p class="kicker">Lesson 10 · Memory virtualization begins</p>
+<h1>The address space</h1>
+<p class="lede">We tricked every process into thinking it owns the CPU. Now we pull the same trick with memory: each process gets its own private memory that starts at 0, even though they all share one physical RAM.</p>
+
+<div class="box key"><span class="tag">The one-sentence version</span>
+The <strong>address space</strong> is the running program's view of memory: its code, heap and stack laid out in a private range starting at 0. Every address the program sees is <strong>virtual</strong>; the OS and hardware translate it to a real <strong>physical</strong> address on every access.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-intro.pdf">OSTEP §13</a></div>
+
+<div class="warmup">
+<div class="rc"><p class="q">Lesson 9: Multi-queue multiprocessor scheduling (MQMS, one queue per CPU) scales well and keeps cache affinity. What problem does it create, and how is it fixed?</p><div class="a"><strong>Load imbalance</strong>: one CPU's queue can run empty (or hold fewer jobs) while another CPU is overloaded. Fix: <strong>migration</strong>, moving jobs between queues, e.g. by <strong>work stealing</strong> (an idle-ish CPU peeks at a busier queue and takes a job).</div></div>
+<div class="rc"><p class="q">Lesson 5: Round Robin with a time slice of 2. Jobs A, B and C all arrive at time 0 and each needs 4 units of CPU. Give the average response time and the average turnaround time.</p><div class="a">Schedule: A 0–2, B 2–4, C 4–6, A 6–8, B 8–10, C 10–12.<br>Response = first run − arrival: A 0, B 2, C 4, so average <strong>2</strong>.<br>Turnaround = finish − arrival: A 8, B 10, C 12, so average <strong>10</strong>. RR is great for response time, poor for turnaround.</div></div>
+</div>
+
+<!-- ======================================================== -->
+<h2>A short history</h2>
+<h3>Early systems: one program</h3>
+<p>Early machines barely needed an abstraction. The OS was just a set of routines (a library) sitting in memory starting at address 0, and <strong>one</strong> running program used all the rest.<span class="cite">Bilal slides, Ch 13 p.3</span> No sharing, so no protection was needed.</p>
+
+<h3>Multiprogramming and time sharing</h3>
+<p>Computers were expensive, so people wanted to share them:</p>
+<ul>
+<li><strong>Multiprogramming</strong>: keep several processes ready to run, and switch to another when one waits (e.g. for I/O). Goal: better <strong>CPU utilization</strong> and efficiency.</li>
+<li><strong>Time sharing</strong>: many users at terminals, each wanting a quick, <strong>interactive</strong> response. It made computing more accessible.</li>
+</ul>
+<p>One crude way to time-share: run a program with all of memory, then save its <em>entire</em> memory to disk and load the next one. That's far too slow (disk is slow). Instead, the OS <strong>leaves several processes in memory at once</strong> and switches between them quickly:<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-intro.pdf">OSTEP Fig 13.2</a></p>
+
+<figure>
+<svg viewBox="0 0 640 220" role="img" aria-label="Left: early system with OS at 0 to 64KB and one program using the rest. Right: physical memory shared by the OS and processes A, B and C, with free gaps">
+  <text x="150" y="16" text-anchor="middle" class="fig-ink2" font-size="12" font-weight="600">Early: one program</text>
+  <rect x="80" y="26" width="140" height="40" rx="4" fill="var(--accent)"/>
+  <text x="150" y="51" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">Operating System</text>
+  <rect x="80" y="66" width="140" height="140" rx="4" class="fig-surface2"/>
+  <text x="150" y="140" text-anchor="middle" class="fig-ink" font-size="12" font-weight="600">Current program</text>
+  <g class="fig-ink2" font-size="10" text-anchor="end"><text x="74" y="30">0KB</text><text x="74" y="70">64KB</text><text x="74" y="206">max</text></g>
+
+  <text x="470" y="16" text-anchor="middle" class="fig-ink2" font-size="12" font-weight="600">Multiprogramming: share RAM</text>
+  <g font-size="11" text-anchor="middle">
+  <rect x="400" y="26" width="140" height="22" rx="3" fill="var(--accent)"/><text x="470" y="41" fill="#fff" font-weight="600">OS</text>
+  <rect x="400" y="48" width="140" height="22" rx="3" class="fig-surface"/><text x="470" y="63" class="fig-muted">(free)</text>
+  <rect x="400" y="70" width="140" height="22" rx="3" fill="var(--s3)"/><text x="470" y="85" fill="#fff" font-weight="600">Process C</text>
+  <rect x="400" y="92" width="140" height="22" rx="3" fill="var(--s2)"/><text x="470" y="107" fill="#fff" font-weight="600">Process B</text>
+  <rect x="400" y="114" width="140" height="22" rx="3" class="fig-surface"/><text x="470" y="129" class="fig-muted">(free)</text>
+  <rect x="400" y="136" width="140" height="22" rx="3" fill="var(--s1)"/><text x="470" y="151" fill="#fff" font-weight="600">Process A</text>
+  <rect x="400" y="158" width="140" height="44" rx="3" class="fig-surface"/><text x="470" y="184" class="fig-muted">(free)</text>
+  </g>
+  <g class="fig-ink2" font-size="10" text-anchor="end"><text x="394" y="30">0KB</text><text x="394" y="52">64KB</text><text x="394" y="74">128KB</text><text x="394" y="96">192KB</text><text x="394" y="118">256KB</text><text x="394" y="140">320KB</text><text x="394" y="162">384KB</text><text x="394" y="206">512KB</text></g>
+</svg>
+<figcaption>Right: three processes live in physical memory together, each in its own small slice. Process A, for example, really lives at 320–384KB.</figcaption>
+</figure>
+
+<div class="box trap"><span class="tag">The new problem</span>
+With several programs in memory at once, nothing stops Process A from reading or overwriting Process B's data, or even the OS itself. <strong>Protection</strong> becomes essential.<span class="cite">Bilal slides, Ch 13 p.6</span></div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Why don't we time-share memory by saving a program's whole memory to disk and loading the next one on every switch? What does the OS do instead, and what new problem does that create?</p><div class="a">Disk is <strong>far too slow</strong> for that. Instead the OS <strong>leaves several processes in memory at once</strong> and switches between them quickly. New problem: one process could read or overwrite another's memory (or the OS's), so <strong>protection</strong> becomes essential.</div></div>
+<div class="rc"><p class="q">In one line each: what is the goal of multiprogramming, and what is the goal of time sharing?</p><div class="a"><strong>Multiprogramming</strong>: keep several processes ready so the CPU switches to another when one waits for I/O, for better <strong>CPU utilization</strong>.<br><strong>Time sharing</strong>: many users at once, each getting a quick <strong>interactive</strong> response.</div></div>
+<div class="close">
+  <p class="q">Which statement about memory in early systems (before multiprogramming) is TRUE?</p>
+  <ul>
+  <li data-true>The OS was a library of routines in memory, one running program used the rest, and the program saw physical memory directly. <span class="why">OSTEP 13.1: early machines gave users little abstraction. With only one program and no sharing, there was nothing to protect it from.</span></li>
+  <li>The OS was a library of routines in memory, several programs shared the rest, and each program saw physical memory directly. <span class="why">Wrong era. Several programs in memory at once is <strong>multiprogramming</strong>, which came later. Early systems ran <strong>one</strong> program.</span></li>
+  <li>The OS was a library of routines in memory, one running program used the rest, and the program saw a virtual address space starting at 0. <span class="why">The virtual address space is the later abstraction. Early machines had <strong>no</strong> such illusion: the program used <strong>physical</strong> memory directly.</span></li>
+  <li>The OS was a library of routines in memory, one running program used the rest, and its memory was saved to disk on every switch. <span class="why">Saving all of memory to disk on each switch was the crude <strong>time-sharing</strong> idea, which came later (and was too slow). Early systems ran one program with no switching.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">Which statement about multiprogramming is TRUE?</p>
+  <ul>
+  <li data-true>Several processes are ready at once, and the OS switches when one does I/O, to raise CPU utilization; it came before time sharing. <span class="why">OSTEP 13.2: machines were expensive, so keeping the CPU busy during I/O mattered. Time sharing (interactivity) came after.</span></li>
+  <li>Several processes are ready at once, and the OS switches when one does I/O, to give users an interactive response; it came before time sharing. <span class="why">Wrong goal. Quick <strong>interactive</strong> response is the goal of <strong>time sharing</strong>; multiprogramming's goal is better <strong>CPU utilization</strong>.</span></li>
+  <li>Several processes are ready at once, and the OS switches only when one finishes, to raise CPU utilization; it came before time sharing. <span class="why">Wrong trigger. The OS switches when a process <strong>waits</strong> (e.g. for <strong>I/O</strong>), so the CPU isn't left idle.</span></li>
+  <li>Several processes are ready at once, and the OS switches when one does I/O, to raise CPU utilization; it came after time sharing. <span class="why">Wrong order. Multiprogramming came <strong>first</strong>; people then demanded more, and <strong>time sharing</strong> followed.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>The abstraction: the address space</h2>
+<p>To make shared memory easy and safe, the OS creates an abstraction called the <strong>address space</strong>: <em>the running program's view of memory</em>. The OS virtualizes memory so that every program believes it has its own private memory, <strong>starting at address 0</strong>.<span class="cite">Bilal slides, Ch 13 p.11</span></p>
+
+<p>An address space holds everything about the running program's memory, in three main pieces:</p>
+
+<figure>
+<svg viewBox="0 0 640 330" role="img" aria-label="A 16KB address space: program code at 0 to 1KB, heap at 1 to 2KB growing toward higher addresses, free space in the middle, stack at 15 to 16KB growing toward lower addresses">
+  <defs><marker id="a10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="var(--ink)"/></marker>
+  <pattern id="hatch10" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="var(--surface)"/><line x1="0" y1="0" x2="0" y2="8" stroke="var(--rule)" stroke-width="3"/></pattern></defs>
+  <rect x="120" y="20" width="170" height="36" rx="3" fill="var(--s7)"/>
+  <text x="205" y="43" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">Program code</text>
+  <rect x="120" y="56" width="170" height="36" rx="3" fill="var(--s3)"/>
+  <text x="205" y="79" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">Heap</text>
+  <rect x="120" y="92" width="170" height="182" fill="url(#hatch10)"/>
+  <text x="205" y="187" text-anchor="middle" class="fig-ink2" font-size="12">(free)</text>
+  <line x1="205" y1="98" x2="205" y2="150" stroke="var(--ink)" stroke-width="2" marker-end="url(#a10)"/>
+  <line x1="205" y1="266" x2="205" y2="212" stroke="var(--ink)" stroke-width="2" marker-end="url(#a10)"/>
+  <rect x="120" y="274" width="170" height="36" rx="3" fill="var(--s2)"/>
+  <text x="205" y="297" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">Stack</text>
+  <rect x="120" y="20" width="170" height="290" fill="none" class="fig-line" stroke-width="1.2"/>
+  <g class="fig-ink2" font-size="11" text-anchor="end" font-family="var(--mono)">
+  <text x="112" y="24">0KB</text><text x="112" y="60">1KB</text><text x="112" y="96">2KB</text><text x="112" y="278">15KB</text><text x="112" y="314">16KB</text></g>
+  <g font-size="11" class="fig-ink2">
+  <text x="302" y="36">code segment: where the</text><text x="302" y="50">instructions live (fixed size)</text>
+  <text x="302" y="72">heap: malloc'd data,</text><text x="302" y="86">grows <tspan font-weight="700" class="fig-ink">positively</tspan> (to higher addresses)</text>
+  <text x="302" y="128">heap and stack grow</text><text x="302" y="142">toward each other</text>
+  <text x="302" y="260">stack: locals, parameters,</text><text x="302" y="274">return addresses; grows</text><text x="302" y="288"><tspan font-weight="700" class="fig-ink">negatively</tspan> (to lower addresses)</text>
+  </g>
+</svg>
+<figcaption>The 16KB example address space from the slides (OSTEP Figure 13.3). Address 0 is drawn at the top, as in Dr. Bilal's slides.</figcaption>
+</figure>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Region</th><th>Holds</th><th>Size over time</th><th>Placed</th></tr></thead>
+<tbody>
+<tr><td><strong>Code</strong> (text segment)</td><td>The program's instructions</td><td><strong>Static</strong>: fixed, doesn't change while running</td><td>At the start (address 0), since it never needs to grow</td></tr>
+<tr><td><strong>Heap</strong></td><td>Dynamically-allocated, <strong>user-managed</strong> memory (<code>malloc()</code> in C, <code>new</code> in C++/Java)</td><td>Grows and shrinks as you allocate and free</td><td>Just after the code, growing <strong>toward higher addresses</strong></td></tr>
+<tr><td><strong>Stack</strong></td><td>Local variables, function parameters, return addresses</td><td>Grows on every call, shrinks on every return</td><td>At the far end, growing <strong>toward lower addresses</strong></td></tr>
+</tbody></table></div>
+<p>Because the two growing regions start at opposite ends and grow toward each other, they share the free space in the middle, and neither runs out until the whole gap is used. (This is a convention; with several threads, for example, there are several stacks.)<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-intro.pdf">OSTEP §13.3</a></p>
+
+<div class="box exam"><span class="tag">Drawing convention: Bilal vs Zafar</span>
+Dr. Bilal's slides (and OSTEP) draw <strong>0KB at the top</strong>: code, then heap growing <em>down the page</em>, stack at the bottom growing <em>up the page</em>. Dr. Zafar's slides draw the same thing upside down: 0KB at the bottom, "stack grows down, heap grows up". <strong>The addresses are identical in both</strong>: heap grows toward <em>higher</em> addresses (positively), stack toward <em>lower</em> addresses (negatively). In the exam, label the addresses on your diagram and you can't be marked wrong.</div>
+
+<h3>"Starts at 0" is a lie</h3>
+<p>In the multiprogramming figure, Process A really lives at physical 320KB. But Process A believes its address space starts at 0. So when A runs <code>load from address 0</code>, the OS together with the hardware must make that load actually go to <strong>physical address 320KB</strong>, not to 0 (which is where the OS lives). That conversion is <strong>address translation</strong>, and it's the subject of <a href="0012-base-and-bounds.html">Lesson 12</a>.</p>
+
+<div class="box analogy"><span class="tag">Analogy</span>
+A hotel guest says "room 0 of my suite". The front desk knows that suite starts on the 32nd floor and silently sends them there. The guest never learns the real floor number, and can't wander into another guest's suite.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Name the three regions of an address space, say what each holds, and which way each one grows.</p><div class="a"><strong>Code</strong>: the instructions; static, fixed size, at address 0.<br><strong>Heap</strong>: malloc'd (user-managed) data; grows toward <strong>higher</strong> addresses.<br><strong>Stack</strong>: locals, parameters, return addresses; grows toward <strong>lower</strong> addresses.<br>Heap and stack start at opposite ends and grow toward each other, sharing the free gap.</div></div>
+<div class="rc"><p class="q">The OS places Process D in physical memory starting at 128KB. D runs <code>load from address 0</code>. Which physical byte address must actually be read, and what is this conversion called?</p><div class="a">Physical = 128 × 1024 + 0 = <strong>131,072</strong> (128KB), not 0 (where the OS lives). Turning a virtual address into a physical one is <strong>address translation</strong>.</div></div>
+<div class="close">
+  <p class="q">Which statement about the <strong>address space</strong> is TRUE?</p>
+  <ul>
+  <li data-true>It is the running program's view of memory: a private range of addresses starting at 0, holding its code, heap and stack. <span class="why">This is the abstraction the OS provides (OSTEP §13.2): every process gets its own, and every address in it is virtual.</span></li>
+  <li>It is the running program's view of memory: a private range of addresses starting where the OS loaded it in physical RAM. <span class="why">It starts at <strong>0</strong>. Where the process really sits (e.g. 320KB) is hidden from it; that's what translation is for.</span></li>
+  <li>It is the slice of physical RAM the OS reserves for a process, holding its code, heap and stack at their real addresses. <span class="why">That's the physical memory behind it. The address space is the program's <strong>view</strong> of memory, made of virtual addresses.</span></li>
+  <li>It is the running program's view of memory: one range of addresses starting at 0 that all running processes share. <span class="why">Each process gets its <strong>own private</strong> address space; sharing one would destroy protection.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">In the 16KB example address space (OSTEP / Dr. Bilal), which statement about the <strong>code</strong> segment is TRUE?</p>
+  <ul>
+  <li data-true>It is static (its size is fixed while the program runs), so it is placed at the start of the address space, at address 0. <span class="why">OSTEP §13.3: the code is static and easy to place, so it goes at the top (address 0); it never needs room to grow.</span></li>
+  <li>It grows on every function call, so it is placed at the start of the address space, at address 0. <span class="why">That's the <strong>stack</strong>. The code is <strong>static</strong>: the instructions don't change size while running.</span></li>
+  <li>It is static (its size is fixed while the program runs), so it is placed at the far end of the address space, at 16KB. <span class="why">The <strong>stack</strong> sits at the far end. Code sits at the start, <strong>address 0</strong>.</span></li>
+  <li>It is static (its size is fixed while the program runs), so it is placed in the free gap between the heap and the stack. <span class="why">The free gap is left empty so the heap and stack can grow into it. Code sits at <strong>address 0</strong>.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">Which statement about how the heap and the stack grow is TRUE?</p>
+  <ul>
+  <li data-true>The heap grows toward higher addresses and the stack toward lower addresses, so the two grow toward each other. <span class="why">Heap starts just after the code and grows positively; stack starts at the far end and grows negatively. They share the free gap.</span></li>
+  <li>The heap grows toward lower addresses and the stack toward higher addresses, so the two grow toward each other. <span class="why">Swapped. Heap grows toward <strong>higher</strong> addresses, stack toward <strong>lower</strong>. (Zafar's "stack grows down" drawing means the same thing.)</span></li>
+  <li>The heap grows toward higher addresses and the stack toward lower addresses, so the two grow away from each other. <span class="why">They start at <strong>opposite ends</strong>, so growing that way brings them <strong>toward</strong> each other, into the shared gap.</span></li>
+  <li>The heap and the stack both grow toward higher addresses, and the stack starts just after the end of the heap. <span class="why">The stack starts at the <strong>far end</strong> and grows toward <strong>lower</strong> addresses.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">Process C sits in physical memory at 128KB–192KB, but believes its address space starts at 0. C executes <code>load from address 1000</code>. Which is TRUE?</p>
+  <ul>
+  <li data-true>1000 is a virtual address; the load really reads physical 131,072 + 1,000 = 132,072. <span class="why">128KB = 128 × 1024 = 131,072. The OS and hardware add C's real starting point to every address it uses.</span></li>
+  <li>1000 is a physical address; the load really reads physical 1,000, which belongs to the OS. <span class="why">Every address a program uses is <strong>virtual</strong>. Reading the OS's memory is exactly what translation prevents.</span></li>
+  <li>1000 is a virtual address; the load really reads physical 128,000 + 1,000 = 129,000. <span class="why">KB means <strong>1024</strong> here: 128KB = <strong>131,072</strong>, so the answer is 132,072.</span></li>
+  <li>1000 is a virtual address; the load really reads physical 196,608 + 1,000 = 197,608. <span class="why">196,608 is 192KB, C's <strong>end</strong>. Virtual 0 maps to C's <strong>start</strong>, 128KB, so the answer is 132,072.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Every address you see is virtual</h2>
+<p>If you print a pointer in C, you are seeing a <strong>virtual</strong> address. Only the OS and hardware know where it really is in physical RAM.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-intro.pdf">OSTEP §13.4 aside</a> You saw this in Lab 5 with your own <code>va_explorer.c</code>, which prints one address from each region:</p>
+<figure class="labcode" data-src="Labs/Lab 5/va_explorer.c" data-lines="6-22" data-hl="7,17,22" data-caption="Lab 5 Task 1: one address from each region. main is in code, the malloc block is in the heap, the local hhh is on the stack"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/va_explorer.c">Labs/Lab 5/va_explorer.c</a><span class="lc-span">lines 6–22</span></div><pre><span class="ln" data-n="6">    printf(&quot;Code segment (main function) : %p\n&quot;,</span><span class="ln hl" data-n="7">        (void *)main);</span><span class="ln" data-n="8">    </span><span class="ln" data-n="9">    //part b heap segment (dynamically allocated 2 Mib Block)</span><span class="ln" data-n="10">    size_t size = 2 * 1024 * 1024; // 2 Mib</span><span class="ln" data-n="11">    void *heap_block = malloc(size);</span><span class="ln" data-n="12">    if (heap_block == NULL) {</span><span class="ln" data-n="13">        fprintf(stderr, &quot;malloc failed\n&quot;);</span><span class="ln" data-n="14">        return 1;</span><span class="ln" data-n="15"> </span><span class="ln" data-n="16">    }</span><span class="ln hl" data-n="17">    printf(&quot;Heap segment (2 Mib malloc) : %p\n&quot;, heap_block);</span><span class="ln" data-n="18"> </span><span class="ln" data-n="19">    //part c stack segment (local variable)</span><span class="ln" data-n="20">    int hhh = 42;</span><span class="ln" data-n="21">    printf(&quot;Stack segment (local variable): %p\n&quot;, </span><span class="ln hl" data-n="22">        (void *)&amp;hhh);</span></pre><figcaption>Lab 5 Task 1: one address from each region. main is in code, the malloc block is in the heap, the local hhh is on the stack</figcaption></figure>
+<p>Two runs of it on a 64-bit Linux machine:</p>
+<pre><code>$ ./va_explorer
+Code segment (main function) : 0x63a4d845d1c9
+Heap segment (2 Mib malloc) : 0x7b168abff010
+Stack segment (local variable): 0x7fff4ff44be4
+$ ./va_explorer
+Code segment (main function) : 0x5d0e68f721c9
+Heap segment (2 Mib malloc) : 0x76190d3ff010
+Stack segment (local variable): 0x7fff516ebe84</code></pre>
+<p>Three things to notice:</p>
+<ol class="steps">
+<li><strong>The order matches the picture</strong>: code is lowest, then the heap block, then the stack near the very top of the (huge, 64-bit) address space.</li>
+<li><strong>The numbers change between runs.</strong> That's <strong>ASLR</strong> (Address Space Layout Randomization): Linux shifts each region randomly every run, so an attacker can't predict where things are. With ASLR turned off, the addresses repeat exactly, which proves they're not physical: two runs can't both own the same physical RAM.</li>
+<li><strong>None of these are physical addresses.</strong> The machine may not even have that much RAM (0x7fff… is about 128 TB). They're positions in the process's own address space.</li>
+</ol>
+<p class="small">Side note: the 2 MiB block is far from the code because big <code>malloc()</code> requests are served by <code>mmap()</code> rather than by growing the classic heap. <a href="0011-memory-api.html">Lesson 11</a> explains.</p>
+
+<p>Run <code>mem.c</code> twice (Lab 5, Task 2, and <a href="0001-the-big-picture.html">Lesson 1</a>) with ASLR off and both copies print the <em>same</em> heap address, yet each counts independently. Same virtual address, different physical memory.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">With ASLR turned off, two copies of the same program print the <em>same</em> heap address, yet each one counts up independently. What does that prove? And what is ASLR for?</p><div class="a">The printed addresses are <strong>virtual</strong>, not physical: two processes can't own the same physical RAM, so the same virtual address must map to different physical memory. ASLR (Address Space Layout Randomization) shifts the code, heap and stack to <strong>random places each run</strong> so attackers can't predict addresses.</div></div>
+<div class="close">
+  <p class="q">Which statement about <strong>ASLR</strong> is TRUE?</p>
+  <ul>
+  <li data-true>Address Space Layout Randomization: code, heap and stack get different random virtual addresses each run, so attackers can't predict them. <span class="why">That's why va_explorer prints different code, heap and stack addresses on every run. It is a security feature.</span></li>
+  <li>Address Space Layout Randomization: code, heap and stack get different random virtual addresses each run, so processes never clash in RAM. <span class="why">Keeping processes apart in RAM is the job of <strong>address translation</strong>. ASLR exists for <strong>security</strong>: unpredictable addresses.</span></li>
+  <li>Address Space Layout Randomization: only the heap gets a different random virtual address each run; code and stack stay fixed. <span class="why">All three move: in the lesson's two runs the <strong>code</strong> (0x63a4… vs 0x5d0e…) and the <strong>stack</strong> changed too.</span></li>
+  <li>Address Space Layout Randomization: the process is put at a different random physical address each run, and the program prints it. <span class="why">Printed pointers are always <strong>virtual</strong>. ASLR randomises the <strong>virtual</strong> layout of the address space.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">With ASLR off, two copies of the same program both print the heap address <code>0x5555555592a0</code>, yet each one counts up independently. Which conclusion is TRUE?</p>
+  <ul>
+  <li data-true>The printed address is virtual: the same virtual address maps to different physical memory in each process. <span class="why">Two processes can't own the same physical RAM, so each one's 0x…92a0 is translated to its own physical location.</span></li>
+  <li>The printed address is virtual: the same virtual address maps to the same physical memory in both processes. <span class="why">Then one process's writes would show up in the other's counter. They count <strong>independently</strong>, so the physical memory is <strong>different</strong>.</span></li>
+  <li>The printed address is physical: the OS gives both processes the same physical block and saves it on every switch. <span class="why">Pointers you print are <strong>virtual</strong>. Swapping memory to disk on every switch is the slow approach the OS avoids.</span></li>
+  <li>The printed address is physical, and the two values only match because ASLR is turned off. <span class="why">ASLR changes the <strong>virtual</strong> layout. Printed pointers are never physical; matching values prove they're <strong>virtual</strong>.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>p, &amp;p and *p</h2>
+<p>A pointer variable connects two regions of the address space, and this is a favourite exam question. Take:</p>
+<pre><code>int main(void) {
+    int *p = malloc(sizeof(int));   // p is a local variable
+    *p = 42;
+    printf("%p\n", p);    // 0x633613e58010
+    printf("%p\n", &amp;p);   // 0x7ffc46627770
+    printf("%d\n", *p);   // 42
+}</code></pre>
+<figure>
+<svg viewBox="0 0 640 260" role="img" aria-label="The pointer variable p lives on the stack at address &amp;p and holds the heap address p; at that heap address is the value *p equal to 42">
+  <defs><marker id="b10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="var(--s1)"/></marker></defs>
+  <rect x="30" y="16" width="200" height="30" rx="3" fill="var(--s7)"/><text x="130" y="36" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">Code</text>
+  <rect x="30" y="46" width="200" height="66" rx="3" fill="var(--s3)" opacity=".25"/>
+  <text x="40" y="62" class="fig-ink2" font-size="11" font-weight="600">Heap</text>
+  <rect x="60" y="70" width="140" height="34" rx="4" fill="var(--s3)"/>
+  <text x="130" y="92" text-anchor="middle" fill="#fff" font-size="15" font-weight="700" font-family="var(--mono)">42</text>
+  <rect x="30" y="112" width="200" height="60" class="fig-surface"/>
+  <text x="130" y="146" text-anchor="middle" class="fig-muted" font-size="11">(free)</text>
+  <rect x="30" y="172" width="200" height="72" rx="3" fill="var(--s2)" opacity=".25"/>
+  <text x="40" y="188" class="fig-ink2" font-size="11" font-weight="600">Stack</text>
+  <rect x="60" y="196" width="140" height="34" rx="4" fill="var(--s2)"/>
+  <text x="74" y="217" fill="#fff" font-size="11" font-weight="600">p:</text>
+  <text x="138" y="218" text-anchor="middle" fill="#fff" font-size="11" font-family="var(--mono)">0x…e58010</text>
+  <path d="M200 205 C 290 205, 290 87, 204 87" fill="none" stroke="var(--s1)" stroke-width="2.2" marker-end="url(#b10)"/>
+  <g font-size="12">
+  <text x="320" y="78" class="fig-ink" font-weight="700" font-family="var(--mono)">p</text>
+  <text x="345" y="78" class="fig-ink2">= 0x…e58010: the value stored in p,</text>
+  <text x="345" y="94" class="fig-ink2">which is the <tspan font-weight="700" class="fig-ink">address of the heap block</tspan></text>
+  <text x="320" y="128" class="fig-ink" font-weight="700" font-family="var(--mono)">*p</text>
+  <text x="345" y="128" class="fig-ink2">= 42: the <tspan font-weight="700" class="fig-ink">value stored in the heap</tspan></text>
+  <text x="345" y="144" class="fig-ink2">at that address (follow the arrow)</text>
+  <text x="320" y="210" class="fig-ink" font-weight="700" font-family="var(--mono)">&amp;p</text>
+  <text x="345" y="210" class="fig-ink2">= 0x…627770: the <tspan font-weight="700" class="fig-ink">address of the</tspan></text>
+  <text x="345" y="226" class="fig-ink2"><tspan font-weight="700" class="fig-ink">pointer variable itself</tspan>, on the stack</text>
+  </g>
+</svg>
+<figcaption>p is a box on the stack. Inside the box is a heap address. At that heap address is 42. (Real addresses from a run; note the stack one starts 0x7ffc…, near the top.)</figcaption>
+</figure>
+<div class="box exam"><span class="tag">This is how it's asked</span>
+"Which statement correctly describes p, &amp;p and *p?" The answer always has this shape: <strong>p = the heap address</strong> (what malloc returned), <strong>&amp;p = the address of the pointer variable</strong> (on the stack, because p is a local), <strong>*p = the value stored in the heap</strong>. Distractors swap these around. If the pointer were a <em>global</em> variable, &amp;p would be in the data region instead of the stack.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Inside <code>main()</code>: <code>int *q = malloc(2 * sizeof(int)); q[0] = 9;</code><br>Say what each of <code>q</code>, <code>&amp;q</code> and <code>*q</code> is, and which region it refers to.</p><div class="a"><code>q</code> = the <strong>heap address</strong> malloc returned (where the 2 ints are).<br><code>&amp;q</code> = the <strong>address of the pointer variable q itself</strong>, on the <strong>stack</strong> (q is a local).<br><code>*q</code> = <strong>9</strong>, the value stored in the heap block (same as <code>q[0]</code>).</div></div>
+<div class="rc"><p class="q">Now the pointer is a global: <code>int *g;</code> at file scope, and <code>main()</code> does <code>g = malloc(sizeof(int));</code>. Where is <code>&amp;g</code>? Where does <code>g</code> point?</p><div class="a"><code>&amp;g</code> is in the <strong>data (globals) region</strong>, not the stack, because g is a global. <code>g</code> still holds a <strong>heap</strong> address, since that's what malloc returns.</div></div>
+<div class="close">
+  <p class="q">Inside <code>main()</code>: <code>double *d = malloc(sizeof(double)); *d = 2.5;</code><br>Which statement is TRUE?</p>
+  <ul>
+  <li data-true><code>d</code> holds a heap address, <code>&amp;d</code> is a stack address, and <code>*d</code> is 2.5, stored in the heap. <span class="why">d holds what malloc returned (heap). d itself is a local, so its own address &amp;d is on the stack. *d follows d to the heap value.</span></li>
+  <li><code>d</code> holds a stack address, <code>&amp;d</code> is a heap address, and <code>*d</code> is 2.5, stored in the heap. <span class="why">Swapped: d holds what malloc returned, a <strong>heap</strong> address; &amp;d is where d itself lives, on the <strong>stack</strong>.</span></li>
+  <li><code>d</code> holds a heap address, <code>&amp;d</code> is a stack address, and <code>*d</code> is 2.5, stored on the stack. <span class="why">*d is the value <strong>at</strong> the address d holds, so it is stored in the <strong>heap</strong>.</span></li>
+  <li><code>d</code> holds a heap address, <code>&amp;d</code> is that same heap address, and <code>*d</code> is 2.5, stored in the heap. <span class="why">&amp;d is the address of the pointer variable d itself, a <strong>stack</strong> address, different from the heap address inside it.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">At file scope: <code>int *g;</code> Then <code>main()</code> runs <code>g = malloc(4 * sizeof(int)); g[0] = 7;</code><br>Which statement is TRUE?</p>
+  <ul>
+  <li data-true><code>&amp;g</code> is in the data (globals) region, <code>g</code> holds a heap address, and <code>*g</code> is 7. <span class="why">g is a global, so g itself lives in the data region (strictly .bss, the zero-filled part for uninitialised globals). Its value is what malloc returned (heap). *g is g[0] = 7.</span></li>
+  <li><code>&amp;g</code> is on the stack, <code>g</code> holds a heap address, and <code>*g</code> is 7. <span class="why">Only <em>local</em> variables live on the stack. g is a <strong>global</strong>, so &amp;g is in the <strong>data</strong> region.</span></li>
+  <li><code>&amp;g</code> is in the data (globals) region, <code>g</code> holds a data-region address, and <code>*g</code> is 7. <span class="why">Where g lives doesn't change what it holds: it holds malloc's return value, a <strong>heap</strong> address.</span></li>
+  <li><code>&amp;g</code> is in the data (globals) region, <code>g</code> holds a heap address, and <code>*g</code> is the address of <code>g[0]</code>. <span class="why">The address of g[0] is <strong>g</strong> itself. *g is the <strong>value</strong> g[0], which is 7.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>From your lab: p and *p in mem.c</h2>
+<p>Lab 5, Task 2 (OSTEP's Program 5.1): <code>mem.c</code> mallocs one int, prints where it is, then adds 1 to it every second. It's the p / *p picture from the section above, running.</p>
+<figure class="labcode" data-src="Labs/Lab 5/mem.c" data-lines="12-23" data-hl="13,17,19,22" data-caption="p holds the heap address (printed on line 17). *p is the int inside the heap block (written on 19, updated on 22)"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/mem.c">Labs/Lab 5/mem.c</a><span class="lc-span">lines 12–23</span></div><pre><span class="ln" data-n="12">    int *p;</span><span class="ln hl" data-n="13">    p = malloc(sizeof(int));</span><span class="ln" data-n="14">    assert(p != NULL);</span><span class="ln" data-n="15"> </span><span class="ln" data-n="16">    printf(&quot;(%d) addr pointed to by p: %p\n&quot;, (int)</span><span class="ln hl" data-n="17">        getpid(), (void *)p);</span><span class="ln" data-n="18">    </span><span class="ln hl" data-n="19">    *p = atoi(argv[1]); // assign value to addr stored in p</span><span class="ln" data-n="20">    while (1){</span><span class="ln" data-n="21">        sleep(1);</span><span class="ln hl" data-n="22">        *p = *p + 1;</span><span class="ln" data-n="23">        printf(&quot;(%d) value of p: %d\n&quot;, getpid(), *p);</span></pre><figcaption>p holds the heap address (printed on line 17). *p is the int inside the heap block (written on 19, updated on 22)</figcaption></figure>
+<p>Map it onto <strong>p, &amp;p and *p</strong>:</p>
+<ol class="steps">
+<li><strong>Line 12–13</strong>: <code>p</code> is a local, so the box called p lives on the <strong>stack</strong>. <code>malloc</code> puts a <strong>heap</strong> address into that box.</li>
+<li><strong>Line 17</strong> prints <code>p</code>, the <strong>heap address</strong>, not <code>&amp;p</code>. (That's why it starts 0x5…, not 0x7ff….)</li>
+<li><strong>Lines 19 and 22</strong> use <code>*p</code>: follow the arrow and read or write the int in the heap. Line 22 adds 1 <em>before</em> line 23 prints, and line 21 sleeps first, so the first value appears after a second and is already one higher.</li>
+</ol>
+<p>Two copies started together on one run (ASLR on, so the addresses differ):</p>
+<pre><code>$ ./mem 7 &amp; ./mem 100
+(47712) addr pointed to by p: 0x5822c9477010
+(47711) addr pointed to by p: 0x5c0c857eb010
+(47711) value of p: 101
+(47712) value of p: 8
+(47712) value of p: 9
+(47711) value of p: 102</code></pre>
+<p>Each process counts on its own. With ASLR off both would print the <em>same</em> address and <em>still</em> count on their own: same virtual address, different physical memory (section "Every address you see is virtual").</p>
+<div class="labnote">Exam angle: given a few lines like these, say which expression prints the heap address (p), the stack address (&amp;p) and the value (*p), and predict the printed values.</div>
+<div class="checkpoint">
+<div class="rc"><p class="q">You run <code>./mem 41</code>. What are the first three "value of p" numbers it prints, and roughly when does the first one appear?</p><div class="a"><strong>42, 43, 44</strong>. Line 19 stores 41, then each loop pass does <code>sleep(1)</code> (line 21), adds 1 (line 22), and only then prints (line 23). So the first line appears after about <strong>1 second</strong> and already shows 42.</div></div>
+<div class="rc"><p class="q">Someone changes line 17 to print <code>(void *)&amp;p</code>. What kind of address appears now? And what would go wrong if they printed <code>*p</code> with <code>%d</code> on line 17 instead?</p><div class="a"><code>&amp;p</code> is the address of the pointer variable itself, a <strong>stack</strong> address (0x7ff… on Linux), because p is a local. Printing <code>*p</code> on line 17 reads the heap int <strong>before</strong> line 19 has stored anything in it: an <strong>uninitialized read</strong>, so it prints whatever was there (malloc doesn't clear memory).</div></div>
+<div class="rc"><p class="q">From memory: write the lines that malloc one int, check the result, store 5 in it, print the heap address and the value, then free it.</p><div class="a"><code>int *p = malloc(sizeof(int));</code><br><code>if (p == NULL) { fprintf(stderr, "malloc failed\n"); exit(1); }</code><br><code>*p = 5;</code><br><code>printf("%p %d\n", (void *)p, *p);</code><br><code>free(p);</code><br>The heap address is <code>p</code> and the value is <code>*p</code>. Writing <code>&amp;p</code> would print the stack address of the pointer.</div></div>
+<div class="close">
+  <p class="q">In <code>mem.c</code>, which line stores a value <strong>into the heap block</strong>?</p>
+  <ul>
+  <li data-true>Line 19, <code>*p = atoi(argv[1]);</code>: it follows p to the heap and writes the int there. <span class="why">The * means "the thing p points at", which is the heap int.</span></li>
+  <li>Line 13, <code>p = malloc(sizeof(int));</code>: it follows p to the heap and writes the int there. <span class="why">Line 13 writes into <strong>p itself</strong> (on the stack): it stores the heap <em>address</em>, not a value in the block.</span></li>
+  <li>Line 17, <code>printf(..., (void *)p);</code>: it follows p to the heap and writes the int there. <span class="why">Line 17 only <strong>reads</strong> p (the address) to print it. Nothing is written.</span></li>
+  <li>Line 12, <code>int *p;</code>: it follows p to the heap and writes the int there. <span class="why">Line 12 just declares the pointer on the stack. It doesn't point anywhere yet.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">You run <code>./mem 20</code>. Which is TRUE about the first "value of p" line?</p>
+  <ul>
+  <li data-true>It prints 21, about one second after the program starts. <span class="why">Each pass sleeps (line 21), adds 1 (line 22), then prints (line 23).</span></li>
+  <li>It prints 20, about one second after the program starts. <span class="why">Line 22 adds 1 <strong>before</strong> line 23 prints, so the first value is already 21.</span></li>
+  <li>It prints 21, immediately when the program starts. <span class="why"><code>sleep(1)</code> on line 21 runs <strong>first</strong> in every loop pass, so there's a one-second wait.</span></li>
+  <li>It prints 22, about one second after the program starts. <span class="why">Only one increment (line 22) happens before the first print: 20 + 1 = 21.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">In <code>va_explorer.c</code>, line 22 prints <code>(void *)&amp;hhh</code> where <code>int hhh = 42;</code> is a local. Which is TRUE?</p>
+  <ul>
+  <li data-true>It prints the virtual address of hhh, which is on the stack (0x7ff… on Linux). <span class="why">&amp; gives the address of the variable. hhh is a local, so it's on the stack, and every printed pointer is virtual.</span></li>
+  <li>It prints the virtual address of hhh, which is in the heap (0x5… on Linux). <span class="why">Only malloc'd memory is on the heap. A <strong>local</strong> variable lives on the <strong>stack</strong>.</span></li>
+  <li>It prints the physical address of hhh, which is on the stack (0x7ff… on Linux). <span class="why">A program never sees physical addresses: every pointer it prints is <strong>virtual</strong>.</span></li>
+  <li>It prints the value of hhh, which is 42, stored on the stack. <span class="why">That would be <code>hhh</code> with <code>%d</code>. <code>&amp;hhh</code> with <code>%p</code> is its <strong>address</strong>.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Goals of virtual memory</h2>
+<p>The OS doesn't just want the illusion to exist; it wants a <em>good</em> one. Three goals:<span class="cite">Bilal slides, Ch 13 p.19</span></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Goal</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><strong>Transparency</strong></td><td>The program shouldn't be able to tell memory is virtualized. It behaves as if it has its own private physical memory; the OS and hardware do the work invisibly.</td></tr>
+<tr><td><strong>Efficiency</strong></td><td>Virtualization must not make programs noticeably slower (<em>time</em>), nor waste lots of memory on bookkeeping (<em>space</em>). This needs <strong>hardware support</strong> (e.g. TLBs, later).</td></tr>
+<tr><td><strong>Protection</strong> (isolation)</td><td>A process must not be able to read or write another process's memory, <strong>or the OS's</strong>. Each process is isolated, so one crash or bug can't spread.</td></tr>
+</tbody></table></div>
+<div class="box exam"><span class="tag">Memory hook</span>
+<strong>T·E·P</strong>: Transparency, Efficiency, Protection. Dr. Bilal lists them in the order Protection, Efficiency, Transparency; OSTEP and Dr. Zafar use T, E, P. The order doesn't matter, but the one-line meaning of each does.</div>
+
+<div class="box key"><span class="tag">Summary</span>
+The VM system gives each program the illusion of a <strong>large, sparse, private</strong> address space. The OS (with hardware help) maps every virtual reference to physical memory. That's what makes protection between processes and efficient sharing of RAM possible.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Name the three goals of virtual memory and give a one-line meaning for each.</p><div class="a"><strong>Transparency</strong>: the program can't tell memory is virtualized; it acts as if it owns private memory.<br><strong>Efficiency</strong>: little slowdown (time) and little wasted memory (space); needs hardware support such as TLBs.<br><strong>Protection</strong> (isolation): no process can touch another process's memory or the OS's.</div></div>
+<div class="rc"><p class="q">A proposed VM design works perfectly and safely, but every memory access now takes 50 times longer. Which goal does it fail?</p><div class="a"><strong>Efficiency</strong> (time). This is why translation must be done by <strong>hardware</strong>, not by the OS in software on each access.</div></div>
+<div class="close">
+  <p class="q">Which description of the three goals of virtual memory is TRUE?</p>
+  <ul>
+  <li data-true>Transparency: the program can't tell memory is virtualized. Efficiency: little time or space overhead. Protection: no process can touch another's memory or the OS's. <span class="why">These are the T·E·P goals (OSTEP §13.5, Bilal Ch 13 p.19). Bilal lists them in the order P, E, T; the meanings are the same.</span></li>
+  <li>Transparency: the program can see which physical addresses it uses. Efficiency: little time or space overhead. Protection: no process can touch another's memory or the OS's. <span class="why">Transparent means <strong>invisible</strong>: the program should <strong>not</strong> be able to tell memory is virtualized.</span></li>
+  <li>Transparency: the program can't tell memory is virtualized. Efficiency: little time overhead; space overhead doesn't matter. Protection: no process can touch another's memory or the OS's. <span class="why">Efficiency covers <strong>both</strong> time (speed) and <strong>space</strong> (little memory spent on bookkeeping).</span></li>
+  <li>Transparency: the program can't tell memory is virtualized. Efficiency: little time or space overhead. Protection: no process can touch another's memory, though it may read the OS's. <span class="why">Protection isolates processes from each other <strong>and from the OS</strong>.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">A proposed VM design is safe and invisible to programs, but the OS checks and translates every memory access in software, so each access is 30× slower. Which is TRUE?</p>
+  <ul>
+  <li data-true>It fails the efficiency goal (time); translation has to be done by hardware so it costs almost nothing per access. <span class="why">Every fetch, load and store is translated, so it must be fast: that's why it needs hardware support.</span></li>
+  <li>It fails the efficiency goal (space); the OS's bookkeeping for the checks wastes too much memory. <span class="why">The problem described is speed: it fails efficiency in <strong>time</strong>.</span></li>
+  <li>It fails the protection goal; a check done in software lets a process reach another process's memory. <span class="why">The design is stated to be <strong>safe</strong>. What it loses is <strong>efficiency</strong> (time).</span></li>
+  <li>It fails the efficiency goal (time); the fix is to translate addresses only at context switches, not on every access. <span class="why">Every access <strong>must</strong> be translated. The fix is to do it in <strong>hardware</strong>.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Practice</h2>
+<p>Answer from memory first, then check. Struggling a little is what makes it stick.</p>
+<p class="score" data-score></p>
+
+<div class="mcq" data-correct="1">
+<p class="q">1. A buggy game tries to overwrite the memory of your browser, and the OS stops it. Which goal of virtual memory is that?</p>
+<button>Transparency</button>
+<button>Protection</button>
+<button>Efficiency</button>
+<div class="why"><strong>Protection (isolation)</strong>: no process may touch another process's memory, or the OS's.</div>
+</div>
+
+<div class="mcq" data-correct="3">
+<p class="q">2. In <code>void f(int n) { int k = n * 2; char *s = malloc(k); }</code>, where do <code>k</code> and the block <code>s</code> points to live?</p>
+<button>k on the heap; block on the stack</button>
+<button>k in the code; block on the heap</button>
+<button>Both of them on the stack inside f</button>
+<button>k on the stack; block on the heap</button>
+<div class="why">Local variables (<code>k</code>, and <code>s</code> itself) are on the <strong>stack</strong>. Anything returned by <code>malloc()</code> is on the <strong>heap</strong>.</div>
+</div>
+
+<div class="mcq" data-correct="0">
+<p class="q">3. <code>double *d = malloc(sizeof(double)); *d = 2.5;</code> runs inside <code>main()</code>. What does <code>printf("%p", (void *)&amp;d)</code> print?</p>
+<button>The stack address of variable d</button>
+<button>The address of the heap block</button>
+<button>The value 2.5 from the heap</button>
+<button>The address of the code segment</button>
+<div class="why"><code>&amp;d</code> is the address of the <strong>pointer variable</strong>, which is a local, so it's on the stack. <code>d</code> (no &amp;) would print the heap block's address, and <code>*d</code> is 2.5.</div>
+</div>
+
+<div class="mcq" data-correct="2">
+<p class="q">4. In the slides' 16KB address space, which way does each region grow?</p>
+<button>Heap toward lower addresses; stack toward higher addresses</button>
+<button>Both grow toward higher addresses, away from code</button>
+<button>Heap toward higher addresses; stack toward lower addresses</button>
+<button>Neither grows; both are fixed when first loaded</button>
+<div class="why">Heap starts after the code (1KB) and grows <strong>positively</strong>; stack starts at the top end (16KB) and grows <strong>negatively</strong>. They meet in the free space. Only the code is fixed.</div>
+</div>
+
+<div class="num" data-answer="14848|14.5">
+<p class="q">5. In that 16KB address space the stack occupies 15KB–16KB. A deep function call pushes another 512 bytes. What is the lowest stack address now, in bytes? (1KB = 1024 bytes)</p>
+<div class="why">The stack grows <strong>negatively</strong>, toward lower addresses. Its low end moves from 15KB = 15360 down by 512: 15360 − 512 = <strong>14848</strong> (14.5KB).</div>
+</div>
+
+<div class="num" data-answer="197608">
+<p class="q">6. Process B believes its address space starts at 0, but the OS placed it at physical 192KB. B loads from virtual address 1000. Which physical byte address must the hardware actually access?</p>
+<div class="why">Physical = where B really starts + virtual address = 192 × 1024 + 1000 = 196608 + 1000 = <strong>197608</strong>. This simple "add an offset" translation is exactly base-and-bounds, next lesson but one.</div>
+</div>
+
+<details class="recall"><summary>7. Why did multiprogramming and time sharing make memory protection necessary, when early systems didn't need it?</summary>
+<div>Early systems ran <strong>one</strong> program with all of memory, so there was nobody else to harm. Multiprogramming and time sharing keep <strong>several processes in memory at once</strong> (swapping whole memories to disk was too slow). Now one program could read or overwrite another's memory, or the OS's, so the OS must isolate them. The address space abstraction provides that.</div></details>
+
+<details class="recall"><summary>8. Your program prints a pointer: 0x7ffd1a2b3c40. Is that where the data is in RAM? Explain in two sentences.</summary>
+<div>No. It's a <strong>virtual</strong> address in the process's own address space (here, on the stack); the OS and hardware translate it to some unrelated <strong>physical</strong> address on every access. Proof: with ASLR off, two processes print the same address yet hold different values.</div></details>
+
+<!-- ======================================================== -->
+<div class="source"><span class="tag">Primary source: read this next</span>
+<p style="margin:.3rem 0 0"><a href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-intro.pdf">OSTEP Chapter 13: The Abstraction: Address Spaces</a> (≈10 pages, short and easy). Read all of it, including the "Every address you see is virtual" aside.</p></div>
+
+<p class="ask">💬 Something unclear? Ask me (your Claude teacher) anything, e.g. <em>"draw p, &amp;p, *p for a pointer to a pointer"</em> or <em>"why does the stack start at the top?"</em>.</p>
+
+<nav class="nextprev"><a href="0009-multiprocessor-scheduling.html">← Lesson 9 · Multiprocessor scheduling</a><a href="0011-memory-api.html">Lesson 11 · The memory API →</a></nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Completely Fair Scheduler</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/quiz.js" defer></script>
+<script src="../assets/gantt.js" defer></script>
+<script src="../assets/propshare.js" defer></script>
+<script src="../assets/recall.js" defer></script>
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">← Course map</a><span>Lesson 8 of 13 · OSTEP Ch 9 (CFS) · ~20 min</span></nav>
+
+<p class="kicker">Lesson 8 · CPU scheduling</p>
+<h1>Linux CFS: fair by the clock</h1>
+<p class="lede">Linux's Completely Fair Scheduler gets rid of tickets and lotteries. Each task keeps one number, its virtual runtime, and the task that is furthest behind always runs next. Priorities only change how fast that number grows.</p>
+
+<div class="box key"><span class="tag">The one-sentence version</span>
+CFS gives every runnable task a <strong>vruntime</strong> that grows while it runs. It always runs the task with the <strong>smallest vruntime</strong>, which it finds as the leftmost node of a red-black tree. High-priority tasks (bigger <strong>weight</strong>) gain vruntime more slowly, so they get picked more often.<span class="cite">Bilal slides, Ch 9B</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP §9.7</a></div>
+
+<div class="warmup">
+<div class="rc"><p class="q">Stride, large number 10,000. J has 40 tickets and pass 500; K has 25 tickets and pass 400. Who runs next, what is its pass afterwards, and who runs after that? (Lesson 7)</p><div class="a">Lowest pass is <strong>K</strong> (400). K's stride = 10,000/25 = 400, so its pass becomes <strong>800</strong>. Next pick: J (500 &lt; 800).</div></div>
+<div class="rc"><p class="q">Lottery, tickets numbered from 0, list order R (30), S (20), T (50). The winning ticket is 49. Who runs? (Lesson 7)</p><div class="a">Ranges: R 0–29, S 30–49, T 50–99 → <strong>S</strong>. (Counter walk: R 30 &gt; 49? no; S 50 &gt; 49? yes.)</div></div>
+<div class="rc"><p class="q">MLFQ with slices 3 / 6 / FCFS. A long CPU-bound job is in the bottom queue when the priority boost (Rule 5) fires. What does it do next? (Lesson 6)</p><div class="a">It moves to the top queue, runs <strong>one top slice of 3</strong>, drops and runs <strong>one middle slice of 6</strong>, then drops back to the bottom (until the next boost).</div></div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Why not just lottery or stride?</h2>
+<p>Dr. Bilal's recap gives three reasons to move on:<span class="cite">Bilal slides, Ch 9B</span></p>
+<ul>
+<li><strong>Lottery is probabilistic.</strong> It's fair in the long run, but in the short term unlucky jobs suffer jitter (unfairness).</li>
+<li><strong>Stride fixes the jitter</strong> because it is deterministic, but managing global state (total tickets, pass values) gets complex.</li>
+<li>Pass/stride values can <strong>overflow</strong> when tasks keep entering and leaving the system.</li>
+</ul>
+<p>What we want: short-term fairness without luck, smooth handling of tasks that sleep, wake up and get created, and a plain <em>time-based</em> measure instead of abstract tickets.</p>
+
+<h3>The ideal: a perfectly divisible CPU</h3>
+<p>Imagine a CPU that could run all N tasks at once, each at exactly 1/N speed. That is perfect fairness. A real core runs one task at a time, so CFS fakes it with quick time slices. Its goal is that the time each task <em>actually</em> gets matches what it <em>would</em> have got on the ideal CPU.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Give the three reasons (from Dr. Bilal's recap) for moving from lottery/stride scheduling to CFS.</p><div class="a">(1) <strong>Lottery is probabilistic</strong>: unfair (jitter) in the short term. (2) <strong>Stride's global state</strong> (total tickets, pass values) is complex to manage. (3) Pass/stride values can <strong>overflow</strong> as tasks keep entering and leaving.</div></div>
+<div class="close">
+  <p class="q">Dr. Bilal's recap explains why we move past lottery scheduling. Which is TRUE?</p>
+  <ul>
+  <li data-true>Lottery is probabilistic, so it is fair over a long run; over a short time, unlucky jobs suffer jitter (unfairness). <span class="why">Random draws even out only over many draws. In the short term some jobs lose more than their share: that is the jitter.</span></li>
+  <li>Lottery is probabilistic, so it is fair over a short run; over a long time, unlucky jobs suffer jitter (unfairness). <span class="why">Reversed. Luck evens out over <strong>many</strong> draws, so lottery is fair in the <strong>long</strong> run and unfair in the <strong>short</strong> term.</span></li>
+  <li>Stride is probabilistic, so it is fair over a long run; over a short time, unlucky jobs suffer jitter (unfairness). <span class="why">Wrong scheduler. Stride is <strong>deterministic</strong> (lowest pass runs), so it has no jitter; <strong>lottery</strong> is the probabilistic one.</span></li>
+  <li>Lottery is deterministic, so it is fair over a long run; over a short time, unlucky jobs suffer jitter (unfairness). <span class="why">A deterministic scheduler has no "unlucky" jobs. Lottery picks a <strong>random</strong> winning ticket: it is <strong>probabilistic</strong>.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">CFS tries to imitate an "ideal fair CPU". Which is TRUE?</p>
+  <ul>
+  <li data-true>With N runnable tasks, all N run at once, each at exactly 1/N of the CPU's speed; CFS fakes this with quick time slices. <span class="why">That is the ideal (perfectly divisible) CPU. A real core runs one task at a time, so CFS switches quickly so each task's real time matches its ideal share.</span></li>
+  <li>With N runnable tasks, all N run at once, each at the CPU's full speed; CFS fakes this with quick time slices. <span class="why">The N tasks <strong>share</strong> one CPU, so each gets <strong>1/N</strong> of its speed, not full speed.</span></li>
+  <li>With N runnable tasks, all N run at once, each at exactly 1/N of the CPU's speed; CFS fakes this with random ticket draws. <span class="why">Random draws are <strong>lottery</strong>, which CFS replaces. CFS is deterministic and uses <strong>time slices</strong> and vruntime, not tickets.</span></li>
+  <li>With N runnable tasks, all N run at once, each at exactly 1/N of the CPU's speed; CFS fakes this by running each task to completion. <span class="why">Running each task to the end is FIFO-like and unfair in the short term. CFS <strong>switches quickly</strong> between tasks with small <strong>time slices</strong>.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>vruntime: the one rule</h2>
+<div class="box key"><span class="tag">The golden rule</span>
+Always pick the process with the <strong>smallest vruntime</strong> to run next.</div>
+<p>Virtual runtime (<code>vruntime</code>) records how long a process has been running, measured in nanoseconds. Running makes it grow and waiting doesn't. So whoever has had the least CPU so far is always next in line.</p>
+<div class="box analogy"><span class="tag">Analogy</span>
+A group sharing one games console. Everyone has a timer that only ticks while they're holding the controller. Whoever's timer shows the least time gets the controller next. Nobody needs to draw lots or keep a rota. The timers sort it out.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">State CFS's golden rule. When does a task's vruntime grow, and in what unit?</p><div class="a">Always run the task with the <strong>smallest vruntime</strong>. vruntime grows <strong>only while the task runs</strong> (not while it waits), measured in nanoseconds.</div></div>
+<div class="rc"><p class="q">CFS tree holds tasks with vruntimes 12.0, 7.0, 19.5 and 7.5 ms. Which runs next, and where is it in the red-black tree?</p><div class="a">The task with <strong>7.0</strong>: the smallest vruntime, which is the <strong>leftmost node</strong>.</div></div>
+<div class="close">
+<p class="q">Which is TRUE about CFS's vruntime?</p>
+<ul>
+<li data-true>The task with the smallest vruntime runs next; vruntime grows as the task runs. <span class="why">Whoever has had the least (weighted) CPU time so far is next in line. Waiting in the run queue adds nothing.</span></li>
+<li>The task with the largest vruntime runs next; vruntime grows as the task runs. <span class="why">The <strong>smallest</strong> vruntime runs: the task furthest behind goes next.</span></li>
+<li>The task with the smallest vruntime runs next; vruntime also grows while it waits in the run queue. <span class="why">Waiting for the CPU adds no vruntime; only <strong>running</strong> does. That is how a waiting task falls behind and gets picked.</span></li>
+<li>The task with the largest weight runs next; vruntime grows as the task runs. <span class="why">The pick is always the <strong>smallest vruntime</strong>. Weight only changes how fast vruntime grows.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Priorities: nice values become weights</h2>
+<p>Linux uses <strong>nice</strong> values from <strong>−20</strong> (highest priority, VIP) to <strong>+19</strong> (lowest priority, background). The name makes sense if you think "a nicer process gives way to others". CFS turns each nice value into a <strong>weight</strong>. Nice 0 has weight <strong>1024</strong>, and each step of nice changes the weight by about 1.25×.<span class="cite">Bilal slides, Ch 9B</span><a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP §9.7</a></p>
+<div class="table-wrap"><table>
+<thead><tr><th class="num">nice</th><th class="num">−20</th><th class="num">−10</th><th class="num">−5</th><th class="num">−1</th><th class="num">0</th><th class="num">+1</th><th class="num">+5</th><th class="num">+10</th><th class="num">+19</th></tr></thead>
+<tbody><tr><td class="num"><strong>weight</strong></td><td class="num">88761</td><td class="num">9548</td><td class="num"><strong>3121</strong></td><td class="num">1277</td><td class="num"><strong>1024</strong></td><td class="num">820</td><td class="num"><strong>335</strong></td><td class="num">110</td><td class="num">15</td></tr></tbody>
+</table></div>
+<p class="small">The bold three are the ones on the slides (−5 → 3121, 0 → 1024, +5 → 335). The others come from the full Linux table in OSTEP (Dr. Zafar's L4 quiz also used +10 → 110). Lower nice means bigger weight, which means more CPU.</p>
+<div class="box exam"><span class="tag">Slides disagree</span>
+Dr. Bilal's slides and OSTEP give the nice range as <strong>−20 to +19</strong>. One of Dr. Zafar's slides prints "−19 to 20", which is a typo. Use −20 to +19.</div>
+
+<h3>Formula 1 · How fast vruntime grows</h3>
+<div class="box key"><span class="tag">vruntime update</span>
+<strong>vruntime increase = actual runtime × (weight<sub>0</sub> / weight<sub>i</sub>)</strong>, where weight<sub>0</sub> = 1024 (nice 0).<br>
+Big weight: the fraction is &lt; 1, so vruntime grows <em>slower</em> than real time and the task stays left in the tree.<br>
+Small weight: the fraction is &gt; 1, so vruntime grows <em>faster</em> and the task moves right quickly.</div>
+<p>Example: three tasks each run for exactly <strong>8 ms</strong> of real time.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Task</th><th class="num">nice</th><th class="num">weight</th><th>Calculation</th><th class="num">vruntime increase</th></tr></thead>
+<tbody>
+<tr><td>Normal</td><td class="num">0</td><td class="num">1024</td><td>8 × 1024/1024</td><td class="num">+8.00 ms</td></tr>
+<tr><td>Important</td><td class="num">−10</td><td class="num">9548</td><td>8 × 1024/9548</td><td class="num">+0.86 ms</td></tr>
+<tr><td>Background</td><td class="num">+10</td><td class="num">110</td><td>8 × 1024/110</td><td class="num">+74.47 ms</td></tr>
+</tbody></table></div>
+<p>Same 8 ms on the CPU, three very different vruntime increases. The important task is still at the far left of the tree afterwards, so it gets picked again soon. The selection rule never changed. Only the speed of each task's clock did.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">CFS nice values: what is the range, which end is highest priority, and what is the weight of nice 0?</p><div class="a"><strong>−20 to +19</strong>. <strong>−20 is the highest priority</strong> (biggest weight). Nice 0 has weight <strong>1024</strong>; each nice step changes the weight by about 1.25×.</div></div>
+<div class="rc"><p class="q">Write the CFS vruntime update formula. Then: a nice −5 task (weight 3121) runs 12 ms, and a nice +10 task (weight 110) runs 3 ms. How much does each vruntime grow?</p><div class="a"><strong>vruntime += runtime × (1024 / weight)</strong>.<br>nice −5: 12 × 1024/3121 = 12288/3121 ≈ <strong>3.94 ms</strong>.<br>nice +10: 3 × 1024/110 = 3072/110 ≈ <strong>27.93 ms</strong>.</div></div>
+<div class="close">
+<p class="q">Which is TRUE about Linux nice values?</p>
+<ul>
+<li data-true>They range from −20 to +19, and −20 is the highest priority. <span class="why">Lower nice = "less nice to others" = bigger weight = more CPU.</span></li>
+<li>They range from −20 to +19, and +19 is the highest priority. <span class="why">+19 is the <strong>lowest</strong> priority (a "nice" process gives way). −20 is the highest.</span></li>
+<li>They range from −20 to +19, and a higher nice value means a bigger weight. <span class="why">Reversed: lower nice → <strong>bigger</strong> weight (−5 → 3121, 0 → 1024, +5 → 335).</span></li>
+<li>They range from −20 to +19, and a nice −20 task's vruntime grows fastest. <span class="why">Biggest weight → smallest 1024/weight → vruntime grows <strong>slowest</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which is TRUE about CFS weights?</p>
+<ul>
+<li data-true>Nice 0 has weight 1024, and each nice step changes the weight by about 1.25×. <span class="why">1024 is weight<sub>0</sub> in the vruntime formula; nice +1 → 820 and nice −1 → 1277, about 1.25× apart.</span></li>
+<li>Nice 0 has weight 1024, and each nice step changes the weight by about 2×. <span class="why">About <strong>1.25×</strong> per step: 1024 → 820 (nice +1), 1024 → 1277 (nice −1).</span></li>
+<li>Nice 0 has weight 0, so its vruntime grows at the same rate as real time. <span class="why">Its weight is <strong>1024</strong> (= weight<sub>0</sub>); that's why its vruntime matches real time: runtime × 1024/1024.</span></li>
+<li>Nice 0 has weight 1024, and a nice +5 task has a bigger weight than that. <span class="why">Higher nice → <strong>smaller</strong> weight: nice +5 → <strong>335</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">X (nice −5, weight 3121) and Y (nice 0, weight 1024) are the only tasks. X runs for 15 ms. Which is TRUE about X's vruntime?</p>
+<ul>
+<li data-true>It grows by about 4.92 ms. <span class="why">vruntime += runtime × weight<sub>0</sub>/weight<sub>X</sub> = 15 × 1024/3121 = 15360/3121 ≈ 4.92 ms.</span></li>
+<li>It grows by about 45.72 ms. <span class="why">Fraction upside down: 15 × 3121/1024. It is weight<sub>0</sub>/weight<sub>X</sub>: 15 × 1024/3121 ≈ <strong>4.92</strong>.</span></li>
+<li>It grows by exactly 15 ms. <span class="why">Only a nice 0 task gains its real runtime. X's weight is 3121: 15 × 1024/3121 ≈ <strong>4.92</strong>.</span></li>
+<li>It grows by about 3.71 ms. <span class="why">That divides by the <strong>sum</strong> of weights (15 × 1024/4145), which belongs in the time-slice formula. vruntime uses 1024/3121: ≈ <strong>4.92</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which is TRUE about a high-priority (big-weight) task in CFS?</p>
+<ul>
+<li data-true>Its vruntime grows more slowly than real time, so it stays left in the tree and is picked more often. <span class="why">Big weight → 1024/weight &lt; 1 → slow clock → small vruntime → leftmost → runs again soon.</span></li>
+<li>Its vruntime grows faster than real time, so it is picked more often. <span class="why">Big weight → 1024/weight &lt; 1 → <strong>slower</strong>. A fast-growing vruntime would make it picked <strong>less</strong>.</span></li>
+<li>Its vruntime grows more slowly than real time, so it drifts right in the tree. <span class="why">Small vruntimes stay on the <strong>left</strong>, which is where CFS picks from.</span></li>
+<li>Its vruntime grows at real-time speed, but CFS picks big weights first. <span class="why">The pick rule never changes (smallest vruntime). Weight only changes the <strong>speed</strong> of the task's clock.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Formula 2 · How long each turn lasts</h2>
+<p>CFS has two knobs:<span class="cite">Zafar slides, CFS Deep Dive p.8–9</span></p>
+<div class="table-wrap"><table>
+<tbody>
+<tr><td><strong>sched_latency</strong> (typically 48 ms)</td><td>The window in which every runnable process should get to run once. It is shared out in proportion to weight.</td></tr>
+<tr><td><strong>min_granularity</strong> (typically 6 ms)</td><td>The floor: no slice is shorter than this, however many processes there are. Every switch costs time, so tiny slices would be mostly overhead.</td></tr>
+</tbody></table></div>
+<div class="box key"><span class="tag">Time slice</span>
+<strong>time_slice<sub>i</sub> = (weight<sub>i</sub> / Σ weights) × sched_latency</strong><br>
+If the result is below min_granularity, use <strong>min_granularity</strong> instead.</div>
+
+<h3>Worked example</h3>
+<p><strong>sched_latency = 20 ms, min_granularity = 2 ms.</strong> Tasks: W (nice 0, weight 1024), X (nice −5, weight 3121), Y (nice +5, weight 335). All start at vruntime 0.</p>
+<ol class="steps">
+<li><strong>Sum the weights:</strong> 1024 + 3121 + 335 = <strong>4480</strong>.</li>
+<li><strong>Slices:</strong> W = 1024/4480 × 20 = <strong>4.57 ms</strong>. X = 3121/4480 × 20 = <strong>13.93 ms</strong>. Y = 335/4480 × 20 = 1.50 ms, which is below the 2 ms floor, so Y gets <strong>2 ms</strong>.</li>
+<li><strong>vruntime after one round:</strong> W = 4.57 × 1024/1024 = <strong>4.57</strong>. X = 13.93 × 1024/3121 = <strong>4.57</strong>. Y = 2 × 1024/335 = <strong>6.11</strong>.</li>
+</ol>
+<div data-gantt='{"lanes":[{"label":"CPU","segs":[["W",0,4.57],["X",4.57,18.5],["Y",18.5,20.5]]}],"end":20.5,"step":2}'></div>
+<p class="small">One round in real time: X gets about 70% of the CPU because it holds about 70% of the weight. Because Y was raised to 2 ms, the round takes 20.5 ms instead of 20.</p>
+<div class="box key"><span class="tag">The pattern to notice</span>
+W and X gained <strong>exactly the same vruntime</strong> (4.57 = 20 × 1024 / 4480), even though X ran three times longer. That is CFS in one line: <em>fair in virtual time = proportional in real time</em>. Only a task whose slice was raised to min_granularity gets ahead in vruntime (Y: 6.11), because it got more than its strict share.</div>
+
+<h3>When there are too many tasks</h3>
+<p>With 10 equal tasks and sched_latency 48 ms, the formula gives 48/10 = 4.8 ms each. That is below 6 ms, so each task gets <strong>6 ms</strong>, and a full round stretches to 10 × 6 = <strong>60 ms</strong>. CFS gives up a little responsiveness to save a lot of switching overhead.<span class="cite">Zafar slides, CFS Deep Dive p.14–16</span></p>
+
+<div class="box exam"><span class="tag">This is how it's asked</span>
+Dr. Bilal: "Task P has weight 1024 and Q has weight W, both run X ms: calculate the vruntime increase for both, then explain using the red-black tree why Q gets more CPU in the long run." Dr. Zafar: "Given nice values and weights, sched_latency and min_granularity: (a) each time slice, (b) vruntime after one round, (c) the vruntime of a newly arrived process." For (a), always check each slice against min_granularity. For (b), use the <em>raised</em> slice for any task that was clamped. For (c), the answer is min_vruntime (see below).</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">What do CFS's two knobs, sched_latency and min_granularity, mean? Give the time-slice formula.</p><div class="a"><strong>sched_latency</strong> (typically 48 ms): the window in which every runnable task should run once. <strong>min_granularity</strong> (typically 6 ms): the smallest slice allowed.<br><strong>time_slice<sub>i</sub> = (weight<sub>i</sub> / Σ weights) × sched_latency</strong>, raised to min_granularity if it comes out smaller.</div></div>
+<div class="rc"><p class="q">CFS: sched_latency = 30 ms, min_granularity = 3 ms. A (nice 0, weight 1024), B (nice +10, weight 110), C (nice −1, weight 1277), all at vruntime 0. Find each time slice and each vruntime after one round.</p><div class="a">Σ = 1024 + 110 + 1277 = 2411.<br>A = 1024/2411 × 30 ≈ <strong>12.74 ms</strong>. B = 110/2411 × 30 ≈ 1.37 → below 3, so <strong>3 ms</strong>. C = 1277/2411 × 30 ≈ <strong>15.89 ms</strong>.<br>vruntime: A = 12.74 × 1024/1024 = <strong>12.74</strong>. C = 15.89 × 1024/1277 = <strong>12.74</strong>. B = 3 × 1024/110 ≈ <strong>27.93</strong> (ahead, because it was clamped up).</div></div>
+<div class="rc"><p class="q">12 runnable tasks, all nice 0, sched_latency = 48 ms, min_granularity = 6 ms. How long is each slice, and how long is one full round?</p><div class="a">48/12 = 4 ms, below the 6 ms floor, so each gets <strong>6 ms</strong>. A round takes 12 × 6 = <strong>72 ms</strong>, not 48.</div></div>
+<div class="close">
+<p class="q">CFS with sched_latency = 24 ms and min_granularity = 4 ms. A (nice 0, weight 1024), B (nice −5, weight 3121), C (nice +5, weight 335). Which is TRUE about B's time slice?</p>
+<ul>
+<li data-true>It is about 16.72 ms. <span class="why">Σ weights = 1024 + 3121 + 335 = 4480. B = 3121/4480 × 24 ≈ 16.72 ms, well above the 4 ms floor.</span></li>
+<li>It is exactly 8 ms. <span class="why">An equal split (24/3) ignores the weights. Slice ∝ weight: 3121/4480 × 24 ≈ <strong>16.72</strong>.</span></li>
+<li>It is about 73.15 ms. <span class="why">That divides by weight<sub>0</sub> (3121/1024 × 24). Divide by the <strong>sum</strong> of weights, 4480: ≈ <strong>16.72</strong>.</span></li>
+<li>It is about 7.87 ms. <span class="why">That is 24 × 1024/3121, the vruntime fraction. Slice = weight/Σ weights × latency ≈ <strong>16.72</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Same tasks (sched_latency = 24 ms, min_granularity = 4 ms), all starting at vruntime 0. Each runs one slice. Which is TRUE?</p>
+<ul>
+<li data-true>C ends highest at about 12.23, because its 1.79 ms slice was raised to 4 ms; A and B both end at about 5.49. <span class="why">C: 335/4480 × 24 ≈ 1.79 &lt; 4, so it runs 4 ms → 4 × 1024/335 ≈ 12.23. A: 5.49 × 1024/1024 = 5.49. B: 16.72 × 1024/3121 ≈ 5.49.</span></li>
+<li>All three end at about 5.49, because each round gives every task the same vruntime. <span class="why">That holds only for <strong>unclamped</strong> slices. C ran 4 ms, not 1.79, so it gains 4 × 1024/335 ≈ <strong>12.23</strong>.</span></li>
+<li>B ends highest at about 16.72, because it ran the longest; A and C end lower. <span class="why">16.72 is B's real runtime; its vruntime is 16.72 × 1024/3121 ≈ <strong>5.49</strong>. C (clamped up) ends highest at ≈ 12.23.</span></li>
+<li>C ends lowest at about 1.79, because it ran the shortest slice. <span class="why">Two slips: C's slice is raised to <strong>4</strong> ms, and its vruntime is scaled by 1024/335: 4 × 1024/335 ≈ <strong>12.23</strong>, the highest.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">20 runnable tasks, all nice 0. sched_latency = 48 ms, min_granularity = 6 ms. Which is TRUE?</p>
+<ul>
+<li data-true>Each slice is 6 ms and one full round takes 120 ms. <span class="why">48/20 = 2.4 ms is below the 6 ms floor, so each task gets 6 ms; 20 × 6 = 120 ms.</span></li>
+<li>Each slice is 2.4 ms and one full round takes 48 ms. <span class="why">Forgot the floor: 2.4 &lt; 6, so each slice is raised to <strong>6</strong> ms and the round becomes <strong>120</strong> ms.</span></li>
+<li>Each slice is 6 ms and one full round still takes 48 ms. <span class="why">Twenty 6 ms slices can't fit in 48 ms; the round stretches to 20 × 6 = <strong>120</strong> ms.</span></li>
+<li>Each slice is 6 ms, so only 8 of the 20 tasks run in each round. <span class="why">Every runnable task still runs once per round; the round just stretches to <strong>120</strong> ms.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Try it: CFS calculator</h2>
+<p>Change the tasks or the two knobs, and the slices and vruntime gains update. Then press <strong>Step</strong> to watch CFS repeatedly run the leftmost task. Finally, add a newcomer at 0 and then at min_vruntime and compare.</p>
+<div data-cfs='{"tasks":[["W",0],["X",-5],["Y",5]],"latency":20,"mingran":2}'></div>
+
+<!-- ======================================================== -->
+<h2>The red-black tree</h2>
+<p>CFS has to find the smallest vruntime over and over, so it needs to be fast. It keeps every <strong>runnable</strong> task in a <strong>red-black tree</strong> (a self-balancing binary search tree) keyed by vruntime. Smaller values are on the left, so <strong>the leftmost node is always the next task to run</strong>.<span class="cite">Bilal slides, Ch 9B</span></p>
+<figure>
+<svg viewBox="0 0 600 220" role="img" aria-label="Red-black tree keyed by vruntime: root 14, left child 9 with left child 5, right child 18 with children 16 and 25. Node 5 is leftmost and is picked next.">
+  <g class="fig-line" stroke-width="1.6">
+    <line x1="300" y1="40" x2="190" y2="100"/><line x1="300" y1="40" x2="410" y2="100"/>
+    <line x1="190" y1="100" x2="120" y2="165"/><line x1="410" y1="100" x2="350" y2="165"/><line x1="410" y1="100" x2="480" y2="165"/>
+  </g>
+  <g font-size="14" font-weight="600" text-anchor="middle">
+    <circle cx="300" cy="40" r="22" fill="var(--ink)"/><text x="300" y="45" fill="var(--bg)">14</text>
+    <circle cx="190" cy="100" r="22" fill="var(--ink)"/><text x="190" y="105" fill="var(--bg)">9</text>
+    <circle cx="410" cy="100" r="22" fill="var(--ink)"/><text x="410" y="105" fill="var(--bg)">18</text>
+    <circle cx="120" cy="165" r="22" fill="var(--s8)" stroke="var(--accent)" stroke-width="4"/><text x="120" y="170" fill="#fff">5</text>
+    <circle cx="350" cy="165" r="22" fill="var(--s8)"/><text x="350" y="170" fill="#fff">16</text>
+    <circle cx="480" cy="165" r="22" fill="var(--s8)"/><text x="480" y="170" fill="#fff">25</text>
+  </g>
+  <text x="120" y="208" text-anchor="middle" fill="var(--accent)" font-size="12" font-weight="600">leftmost = smallest vruntime → runs next</text>
+  <text x="560" y="40" text-anchor="end" class="fig-ink2" font-size="11">key = vruntime</text>
+</svg>
+<figcaption>The task with vruntime 5 runs. When its slice ends, its vruntime has grown (say to 13), and it is re-inserted. The tree rebalances, and 9 becomes the new leftmost node.</figcaption>
+</figure>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Operation</th><th>Cost</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Pick the next task</td><td><strong>O(1)</strong></td><td>The kernel caches a pointer to the leftmost node (Dr. Bilal's slide)</td></tr>
+<tr><td>Insert a waking or preempted task, or remove a blocking one</td><td><strong>O(log n)</strong></td><td>A balanced binary search tree has height about log₂ n</td></tr>
+<tr><td>Same job with a plain sorted list</td><td>O(n)</td><td>Insertion has to scan the list, which doesn't scale to thousands of tasks (OSTEP)</td></tr>
+</tbody></table></div>
+<p>Why not a min-heap? Heaps are usually arrays, which need contiguous memory in the kernel. Also, removing an <em>arbitrary</em> task (one that just blocked on I/O) from a heap means an O(n) search, but it is O(log n) in a red-black tree.<span class="cite">Bilal slides, Ch 9B</span></p>
+<div class="box exam"><span class="tag">How to say the complexity</span>
+OSTEP and Dr. Zafar say "red-black tree, <strong>O(log n)</strong>" to find or insert. Dr. Bilal adds that picking is O(1) thanks to the cached leftmost pointer, while insert and remove are O(log n). Writing both earns full marks with either examiner.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">What data structure does CFS keep runnable tasks in, keyed by what? Which node runs next, and what do pick and insert cost?</p><div class="a">A <strong>red-black tree</strong> (self-balancing BST) keyed by <strong>vruntime</strong>. The <strong>leftmost node</strong> runs next. Pick: <strong>O(1)</strong> with a cached leftmost pointer (O(log n) to find without it). Insert / remove: <strong>O(log n)</strong>.</div></div>
+<div class="rc"><p class="q">Why does CFS use a red-black tree instead of a sorted list or a min-heap?</p><div class="a">A sorted list needs an <strong>O(n)</strong> scan to insert, which doesn't scale to thousands of tasks. A heap is usually an array (needs contiguous kernel memory), and removing an <strong>arbitrary</strong> task (one that just blocked) is an O(n) search; in a red-black tree it is O(log n).</div></div>
+<div class="close">
+<p class="q">Which is TRUE about CFS's red-black tree?</p>
+<ul>
+<li data-true>It is keyed by vruntime, and the leftmost node is the next task to run. <span class="why">Smaller keys sit on the left, so the leftmost node holds the smallest vruntime.</span></li>
+<li>It is keyed by vruntime, and the rightmost node is the next task to run. <span class="why">The rightmost node has the <strong>largest</strong> vruntime. CFS runs the <strong>leftmost</strong>.</span></li>
+<li>It is keyed by weight, and the leftmost node is the next task to run. <span class="why">The key is <strong>vruntime</strong>. Weight only sets how fast a task's vruntime grows.</span></li>
+<li>It is keyed by vruntime, and the root node is the next task to run. <span class="why">The root is just a middle value. The smallest is the <strong>leftmost</strong> node.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which is TRUE about inserting a waking task into CFS's red-black tree of n runnable tasks?</p>
+<ul>
+<li data-true>It costs O(log n), because a balanced tree has height about log₂ n. <span class="why">Insertion walks one root-to-leaf path and rebalances; OSTEP: insertion and deletion are logarithmic.</span></li>
+<li>It costs O(n), because the tree must be walked in order to find the spot. <span class="why">That is the cost for a <strong>sorted list</strong>. A balanced search tree follows one path: <strong>O(log n)</strong>.</span></li>
+<li>It costs O(1), because the kernel caches a pointer to the leftmost node. <span class="why">The cached pointer makes <strong>picking</strong> fast. Inserting still descends the tree: <strong>O(log n)</strong>.</span></li>
+<li>It costs O(n log n), because the whole tree is re-sorted after each insert. <span class="why">Nothing is re-sorted: one insert plus a local rebalance, <strong>O(log n)</strong>.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>New tasks and I/O sleepers: min_vruntime</h2>
+<p>Only <em>runnable</em> tasks live in the tree. A task that blocks for I/O (or sleeps) is taken out, and its vruntime stops growing while the others keep running.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP §9.7</a></p>
+<p>That creates a problem. Say A and B are both running, and B goes to sleep for 10 seconds. When B wakes up, its vruntime is 10 seconds behind A's. Under the golden rule, B would <strong>monopolize the CPU</strong> for the next 10 seconds while it catches up, and A would starve. A <strong>brand-new</strong> task has the same problem: vruntime 0 is the lowest possible value.</p>
+<div class="box key"><span class="tag">The fix</span>
+When a task is <strong>created</strong> or <strong>wakes up</strong>, CFS sets its vruntime to the <strong>minimum vruntime currently in the tree</strong> (<code>min_vruntime</code>). It competes fairly from now on: it isn't allowed to hog the CPU, and it doesn't wait behind everyone else either.</div>
+<p>Using the worked example: after one round, W = 4.57, X = 4.57 and Y = 6.11. A new task Z (nice 0) arrives, so CFS sets Z's vruntime = min_vruntime = <strong>4.57</strong>.</p>
+<p class="small">The cost (OSTEP): a task that sleeps for short periods very often doesn't always get its full fair share, because it keeps being reset to the minimum. Compare stride scheduling, where a new job at pass 0 monopolizes the CPU (previous lesson). CFS solves the same problem in the same way.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">A CFS task wakes up after sleeping on I/O for 5 seconds. What vruntime does it get, and why not keep its old one?</p><div class="a">It gets <strong>min_vruntime</strong>, the smallest vruntime currently in the tree. Its old value is 5 s behind everyone, so it would <strong>monopolise the CPU</strong> while catching up and starve the others.</div></div>
+<div class="rc"><p class="q">The CFS tree holds vruntimes 31.2, 28.5 and 40.0 ms. A brand-new task is created. What vruntime does it start with? What is the downside of this policy?</p><div class="a"><strong>28.5</strong> (min_vruntime). Downside (OSTEP): a task that sleeps for short periods very often keeps being reset to the minimum and <strong>may not get its full fair share</strong>.</div></div>
+<div class="close">
+<p class="q">The CFS tree holds tasks with vruntimes 14.2, 9.6 and 22.0 ms. A brand-new task is created. Which is TRUE?</p>
+<ul>
+<li data-true>It starts at 9.6, the current min_vruntime. <span class="why">New and waking tasks get the smallest vruntime in the tree, so they compete fairly from now on.</span></li>
+<li>It starts at 0, the lowest possible vruntime. <span class="why">At 0 it would be far behind everyone and <strong>monopolize the CPU</strong> while catching up. CFS uses min_vruntime: <strong>9.6</strong>.</span></li>
+<li>It starts at about 15.27, the average vruntime in the tree. <span class="why">CFS uses the <strong>minimum</strong>, not the average: <strong>9.6</strong>.</span></li>
+<li>It starts at 22.0, the largest vruntime, so it waits its turn. <span class="why">That would put it behind everyone. CFS uses the <strong>minimum</strong>: <strong>9.6</strong>.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Lottery, stride, CFS in one table</h2>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Lottery</th><th>Stride</th><th>CFS</th></tr></thead>
+<tbody>
+<tr><td>Share set by</td><td>tickets</td><td>tickets → stride</td><td>nice → weight</td></tr>
+<tr><td>Picks</td><td>random winning ticket</td><td>lowest pass</td><td>lowest vruntime (leftmost node)</td></tr>
+<tr><td>After running</td><td>nothing to update</td><td>pass += BIG / tickets</td><td>vruntime += runtime × 1024 / weight</td></tr>
+<tr><td>Fairness</td><td>probabilistic</td><td>deterministic</td><td>deterministic</td></tr>
+<tr><td>Newcomer</td><td>easy: add its tickets</td><td>pass 0 would monopolize</td><td>gets min_vruntime</td></tr>
+</tbody></table></div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">For lottery, stride and CFS: what sets a job's share, what is picked, and what is updated after it runs?</p><div class="a"><table><tr><th></th><th>Share</th><th>Picks</th><th>After running</th></tr><tr><td>Lottery</td><td>tickets</td><td>random winning ticket</td><td>nothing</td></tr><tr><td>Stride</td><td>tickets → stride</td><td>lowest pass</td><td>pass += BIG / tickets</td></tr><tr><td>CFS</td><td>nice → weight</td><td>lowest vruntime (leftmost)</td><td>vruntime += runtime × 1024 / weight</td></tr></table></div></div>
+<div class="close">
+  <p class="q">Which is TRUE about how each scheduler chooses the next job?</p>
+  <ul>
+  <li data-true>Lottery draws a random winning ticket, stride runs the job with the lowest pass, and CFS runs the task with the lowest vruntime. <span class="why">Matches the table: random ticket / lowest pass / lowest vruntime (the leftmost node of the red-black tree).</span></li>
+  <li>Lottery draws a random winning ticket, stride runs the job with the lowest stride, and CFS runs the task with the lowest vruntime. <span class="why">The stride is a fixed step (BIG / tickets). Stride picks the lowest <strong>pass</strong>, the running total of strides.</span></li>
+  <li>Lottery draws a random winning ticket, stride runs the job with the highest pass, and CFS runs the task with the lowest vruntime. <span class="why">Reversed. The job that has run least (relative to its tickets) has the <strong>lowest</strong> pass, and that one runs.</span></li>
+  <li>Lottery runs the job holding the most tickets, stride runs the job with the lowest pass, and CFS runs the task with the lowest vruntime. <span class="why">That would let the biggest ticket-holder run every time. Lottery draws a <strong>random</strong> ticket; more tickets only raise the <strong>chance</strong> of winning.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">Which is TRUE about what each scheduler updates after a job runs?</p>
+  <ul>
+  <li data-true>Lottery updates nothing; stride adds BIG / tickets to the job's pass; CFS adds runtime × 1024 / weight to its vruntime. <span class="why">Matches the table. Lottery just draws again; stride's step shrinks with more tickets; CFS's vruntime grows more slowly for bigger weights.</span></li>
+  <li>Lottery updates nothing; stride adds BIG × tickets to the job's pass; CFS adds runtime × 1024 / weight to its vruntime. <span class="why">The stride is BIG <strong>÷</strong> tickets. More tickets must mean a <strong>smaller</strong> step, so the job is picked more often.</span></li>
+  <li>Lottery updates nothing; stride adds BIG / tickets to the job's pass; CFS adds runtime × weight / 1024 to its vruntime. <span class="why">Inverted. It is runtime × <strong>1024 / weight</strong>, so a big-weight (high-priority) task's vruntime grows <strong>more slowly</strong>.</span></li>
+  <li>Lottery removes the winning ticket; stride adds BIG / tickets to the job's pass; CFS adds runtime × 1024 / weight to its vruntime. <span class="why">Lottery keeps every ticket in play; the next draw is from the <strong>same</strong> tickets. It has <strong>nothing</strong> to update.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>From your lab: stride.c is half of CFS</h2>
+<p>You didn't write CFS in a lab. But the pick loop in Lab 4's <code>stride.c</code> already has the shape of CFS's golden rule. Swap the names and it is the same idea.</p>
+<figure class="labcode" data-src="Labs/Lab 4/stride.c" data-lines="49-55" data-hl="51,52" data-caption="Lowest pass wins. Rename pass to vruntime and this is CFS's pick rule"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%204/stride.c">Labs/Lab 4/stride.c</a><span class="lc-span">lines 49–55</span></div><pre><span class="ln" data-n="49">        for (int i=0; i &lt;num_jobs; i++) {</span><span class="ln" data-n="50">            if (jobs[i].remaining_time &gt; 0){</span><span class="ln hl" data-n="51">                if(min_pass_index == -1 || jobs[i].pass &lt;</span><span class="ln hl" data-n="52">                    jobs[min_pass_index].pass)</span><span class="ln" data-n="53">                    min_pass_index = i;</span><span class="ln" data-n="54">            }</span><span class="ln" data-n="55">        }</span></pre><figcaption>Lowest pass wins. Rename pass to vruntime and this is CFS's pick rule</figcaption></figure>
+<figure class="labcode" data-src="Labs/Lab 4/stride.c" data-lines="63-65" data-hl="65" data-caption="pass += stride. In CFS: vruntime += runtime × 1024 / weight"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%204/stride.c">Labs/Lab 4/stride.c</a><span class="lc-span">lines 63–65</span></div><pre><span class="ln" data-n="63">        //Advance the winner</span><span class="ln" data-n="64">        jobs[min_pass_index].remaining_time--;</span><span class="ln hl" data-n="65">        jobs[min_pass_index].pass += jobs[min_pass_index].stride;</span></pre><figcaption>pass += stride. In CFS: vruntime += runtime × 1024 / weight</figcaption></figure>
+<div class="table-wrap"><table>
+<thead><tr><th>stride.c</th><th>CFS</th></tr></thead>
+<tbody>
+<tr><td><code>pass</code></td><td><code>vruntime</code></td></tr>
+<tr><td><code>stride = NUMERATOR / tickets</code> (line 28)</td><td>1024 / weight per unit of runtime: more weight → slower growth</td></tr>
+<tr><td><code>pass += stride</code>, one fixed step per slice (line 65)</td><td><code>vruntime += runtime × 1024 / weight</code>: grows by how long it <em>actually</em> ran</td></tr>
+<tr><td>a <code>for</code> loop over every job (lines 49–55): O(n)</td><td>leftmost node of a red-black tree</td></tr>
+<tr><td>every pass starts at 0 (line 29)</td><td>a new or waking task gets <code>min_vruntime</code></td></tr>
+</tbody></table></div>
+<p>So the row "Picks: lowest pass / lowest vruntime" in the table above is literally the same loop. What CFS adds around that loop: a <em>time-based</em> charge (a task that runs half a slice is charged half), slices sized by weight from <code>sched_latency</code> and <code>min_granularity</code> (Formula 2; stride.c gives every pick the same fixed slice), and a tree so the pick doesn't scan every task.</p>
+<div class="labnote">Exam angle: if asked how CFS relates to stride, say: both run the task with the lowest counter and add a weighted amount after it runs. CFS charges by actual runtime, sizes each slice by weight (sched_latency, min_granularity) and keeps tasks in a red-black tree.</div>
+<div class="checkpoint">
+<div class="rc"><p class="q">Rewrite stride.c's line 65 as the CFS update, for a task with weight <code>w</code> that just ran for <code>ran</code> ms.</p><div class="a"><code>jobs[k].vruntime += ran * 1024.0 / w;</code><br>Same shape as <code>pass += stride</code>, but the step depends on how long it <strong>actually</strong> ran, and it uses 1024 / weight instead of NUMERATOR / tickets.</div></div>
+<div class="rc"><p class="q">stride.c finds the lowest pass by scanning all jobs (lines 49–55). Why doesn't Linux CFS do that, and what does it do instead?</p><div class="a">A scan is <strong>O(n)</strong> every pick, which is too slow with thousands of tasks. CFS keeps runnable tasks in a <strong>red-black tree</strong> keyed by vruntime: the next task is the <strong>leftmost node</strong> (O(1) with a cached pointer), and insert/remove are <strong>O(log n)</strong>.</div></div>
+<div class="close">
+<p class="q">If stride.c were turned into CFS, which line would become <code>vruntime += runtime × 1024 / weight</code>?</p>
+<ul>
+<li data-true>Line 65, <code>pass += stride</code>. <span class="why">It is the update after the job runs: the counter grows by a weighted amount.</span></li>
+<li>Line 28, <code>stride = NUMERATOR / tickets</code>. <span class="why">That runs once, at the start, to set the step size. The per-slice update is line <strong>65</strong>.</span></li>
+<li>Line 51, the <code>pass &lt;</code> comparison. <span class="why">That is the <strong>pick</strong> rule (lowest counter wins), not the update.</span></li>
+<li>Line 64, <code>remaining_time--</code>. <span class="why">That tracks how much work is left. CFS's vruntime update corresponds to the <strong>pass</strong> update, line 65.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">stride.c starts every job at pass 0 (line 29). Which is TRUE about doing that for a task that joins later?</p>
+<ul>
+<li data-true>In stride it would monopolize the CPU until it caught up; CFS avoids this by starting it at min_vruntime. <span class="why">Everyone else's counter is already large, so 0 is the lowest by far. CFS starts newcomers at the smallest vruntime in the tree.</span></li>
+<li>In stride it would starve until it caught up; CFS avoids this by starting it at min_vruntime. <span class="why">The <strong>lowest</strong> counter runs, so a pass-0 newcomer runs <strong>every</strong> time. It hogs the CPU; it doesn't starve.</span></li>
+<li>In stride it would monopolize the CPU until it caught up; CFS also starts it at 0. <span class="why">CFS sets a new task's vruntime to <strong>min_vruntime</strong>, not 0, for exactly this reason.</span></li>
+<li>In stride it would monopolize the CPU until it caught up; CFS starts it at the largest vruntime. <span class="why">That would make it wait behind everyone. CFS uses the <strong>minimum</strong>.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Practice</h2>
+<p>Answer from memory first, then check. Struggling a little is what makes it stick.</p>
+<p class="score" data-score></p>
+
+<div class="num" data-answer="18.34" data-tol="0.005">
+<p class="q">1. A task with nice +5 (weight 335) runs for 6 ms. By how much does its vruntime increase (in ms)?</p>
+<div class="why">6 × (1024 / 335) = 6 × 3.057 = <strong>18.34 ms</strong>. Its clock runs about 3× faster than real time because its weight is about 1/3 of the default.</div>
+</div>
+
+<div class="num" data-answer="26.41" data-tol="0.005">
+<p class="q">2. sched_latency = 36 ms, min_granularity = 4 ms. Tasks: P (nice 0, 1024), Q (nice −5, 3121), R (nice +10, 110). What is Q's time slice (in ms)?</p>
+<div class="why">Σ = 1024 + 3121 + 110 = 4255. Q = 3121 / 4255 × 36 = <strong>26.41 ms</strong>. That is above 4 ms, so it isn't clamped.</div>
+</div>
+
+<div class="num" data-answer="37.24" data-tol="0.005">
+<p class="q">3. Same setup as Q2. All start at vruntime 0. What is R's vruntime after one round?</p>
+<div class="why">R's formula slice = 110 / 4255 × 36 = 0.93 ms, which is below the 4 ms floor, so R runs <strong>4 ms</strong>. vruntime = 4 × 1024 / 110 = <strong>37.24</strong>. (P and Q both end at 8.66, the "fair" amount, and R is ahead because it was given extra time.)</div>
+</div>
+
+<div class="num" data-answer="8.66" data-tol="0.005">
+<p class="q">4. Same setup, after that first round. A new task S (nice 0) is created. What vruntime does CFS give it?</p>
+<div class="why">New tasks get <strong>min_vruntime</strong>, the smallest vruntime in the tree. After one round P = 8.66, Q = 26.41 × 1024/3121 = 8.66, and R = 37.24. Minimum = <strong>8.66</strong>. Starting at 0 would let S monopolize the CPU.</div>
+</div>
+
+<div class="num" data-answer="96">
+<p class="q">5. 16 runnable tasks, all nice 0, with sched_latency = 48 ms and min_granularity = 6 ms. How long (in ms) is one full round in which every task runs once?</p>
+<div class="why">48 / 16 = 3 ms, which is below the 6 ms floor, so each task gets 6 ms. The round = 16 × 6 = <strong>96 ms</strong>, not 48.</div>
+</div>
+
+<div class="mcq" data-correct="2">
+<p class="q">6. Tasks H (weight 4096) and L (weight 1024) each run 10 ms. Why does H end up with more CPU time over many rounds?</p>
+<button>H always receives a longer fixed slice.</button>
+<button>The scheduler picks the rightmost tree node.</button>
+<button>H's vruntime grows four times more slowly.</button>
+<button>L is removed from the tree afterwards.</button>
+<div class="why">H gains 10 × 1024/4096 = 2.5 ms of vruntime and L gains 10 ms. H's smaller vruntime keeps it at the <strong>left</strong> of the red-black tree, and CFS always runs the leftmost (smallest vruntime) node, so H is picked more often.</div>
+</div>
+
+<div class="mcq" data-correct="0">
+<p class="q">7. A task has been blocked on disk I/O for a long time and now wakes up. What does CFS do with its vruntime?</p>
+<button>Sets it to the tree's minimum vruntime.</button>
+<button>Keeps its old, very small vruntime value.</button>
+<button>Resets it to zero like brand-new tasks.</button>
+<button>Sets it to the tree's maximum vruntime.</button>
+<div class="why">If it kept its old, much smaller value, it would monopolize the CPU while catching up. Zero is even worse. The maximum would punish it for sleeping. CFS uses <strong>min_vruntime</strong>.</div>
+</div>
+
+<details class="recall"><summary>8. Write the two CFS formulas and the selection rule, and say what data structure CFS uses and its cost.</summary>
+<div><strong>time_slice<sub>i</sub> = (weight<sub>i</sub> / Σ weight) × sched_latency</strong>, but at least min_granularity.<br><strong>vruntime<sub>i</sub> += runtime × (1024 / weight<sub>i</sub>)</strong> (1024 = weight of nice 0).<br>Rule: always run the task with the smallest vruntime. The runnable tasks are kept in a <strong>red-black tree</strong> keyed by vruntime, and the leftmost node is the next to run. Picking is O(1) with a cached leftmost pointer, and insert/remove is O(log n). New and waking tasks get min_vruntime.</div></details>
+
+<!-- ======================================================== -->
+<div class="source"><span class="tag">Primary source: read this next</span>
+<p style="margin:.3rem 0 0"><a href="https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-lottery.pdf">OSTEP Chapter 9, §9.7: The Linux Completely Fair Scheduler (CFS)</a> (about 5 pages). It covers sched_latency, min_granularity, the full nice→weight table, red-black trees, and how sleeping processes are handled.</p></div>
+
+<p class="ask">💬 Something unclear? Ask me (your Claude teacher) anything, e.g. <em>"give me another CFS slice problem where two tasks get clamped"</em> or <em>"why is vruntime the same for unclamped tasks?"</em>.</p>
+
+<nav class="nextprev"><a href="0007-lottery-and-stride.html">← Lesson 7 · Lottery &amp; stride</a><a href="0009-multiprocessor-scheduling.html">Lesson 9 · Multiprocessor scheduling →</a></nav>
+</main>
+</body>
+</html>

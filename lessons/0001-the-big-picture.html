@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Big Picture</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/quiz.js" defer></script>
+<script src="../assets/gantt.js" defer></script>
+<script src="../assets/recall.js" defer></script>
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">← Course map</a><span>Lesson 1 of 13 · OSTEP Ch 2 · ~15 min</span></nav>
+
+<p class="kicker">Lesson 1 · Introduction</p>
+<h1>What an OS actually does</h1>
+<p class="lede">One CPU, one RAM, one disk, and many programs that each want all three. The OS's job is to make every program believe it has the machine to itself.</p>
+
+<div class="box key"><span class="tag">The one-sentence version</span>
+The operating system sits between programs and hardware. It takes a physical resource and turns it into an easier, more general <strong>virtual</strong> version, and it acts as a <strong>resource manager</strong> that decides who uses what, when, and for how long.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/intro.pdf">OSTEP §2</a></div>
+
+<figure>
+<svg viewBox="0 0 600 210" role="img" aria-label="Three layers: applications on top, the operating system in the middle, hardware at the bottom">
+  <rect x="40" y="10" width="520" height="52" rx="8" class="fig-surface"/>
+  <text x="300" y="34" text-anchor="middle" class="fig-ink" font-size="15" font-weight="600">Applications</text>
+  <text x="300" y="52" text-anchor="middle" class="fig-ink2" font-size="12">browser · editor · compiler · your ./task1</text>
+  <rect x="40" y="78" width="520" height="52" rx="8" fill="var(--accent)"/>
+  <text x="300" y="102" text-anchor="middle" fill="#fff" font-size="15" font-weight="600">Operating System</text>
+  <text x="300" y="120" text-anchor="middle" fill="#fff" font-size="12">virtualizes · manages · protects</text>
+  <rect x="40" y="146" width="520" height="52" rx="8" class="fig-surface2"/>
+  <text x="300" y="170" text-anchor="middle" class="fig-ink" font-size="15" font-weight="600">Hardware</text>
+  <text x="300" y="188" text-anchor="middle" class="fig-ink2" font-size="12">CPU · RAM · disk · network</text>
+</svg>
+<figcaption>Programs never touch hardware directly. They ask the OS, which hands out the hardware fairly and safely.</figcaption>
+</figure>
+
+<p>OSTEP organises the whole course around <strong>three easy pieces</strong>. Your midterm covers the first one, virtualization, in depth. The other two only need a sentence each for now.</p>
+
+<!-- ======================================================== -->
+<h2>Piece 1 · Virtualization</h2>
+
+<h3>Virtualizing the CPU</h3>
+<p>Your laptop may have 8 cores but 300 running programs. The OS creates the <em>illusion</em> that each program has its own CPU. It runs one program for a few milliseconds, switches to the next, and so on, faster than you can notice. This is called <strong>time sharing</strong>.</p>
+
+<div data-gantt='{"lanes":[{"label":"CPU","segs":[["A",0,1],["B",1,2],["C",2,3],["D",3,4],["A",4,5],["B",5,6],["C",6,7],["D",7,8],["A",8,9],["B",9,10],["C",10,11],["D",11,12]]}],"end":12}'></div>
+<p class="small">Four programs, one CPU. Each one thinks it is running all the time, but really they take turns. Hover a block to see when it ran.</p>
+
+<p>For this to work, the OS needs two kinds of thing. Keep the difference in mind; it comes back in every chapter:</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Answers the question…</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td><strong>Mechanism</strong></td><td><em>How</em> do we do it?</td><td>The <strong>context switch</strong>: save one process's registers, load another's</td></tr>
+<tr><td><strong>Policy</strong></td><td><em>Which</em> one do we pick?</td><td>The <strong>scheduler</strong> decides who runs next (FIFO, round robin, MLFQ…)</td></tr>
+</tbody></table></div>
+<p>Lesson 4 covers the mechanism, and Lessons 5–9 cover the policies.</p>
+
+<h3>Virtualizing memory</h3>
+<p>Physical memory is just one big array of bytes that every program shares. The OS gives each process its own private <strong>address space</strong>, a pretend memory that starts at 0 and belongs only to that process. Hardware and the OS translate every <em>virtual</em> address into a real <em>physical</em> one.</p>
+
+<p>The classic demo is <code>mem.c</code>, which allocates one integer and keeps incrementing it.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/intro.pdf">OSTEP Fig 2.3</a> Run two copies at once:</p>
+<pre><code>$ ./mem &amp; ./mem &amp;
+(2134) addr 0x200000: 1
+(2135) addr 0x200000: 1
+(2134) addr 0x200000: 2
+(2135) addr 0x200000: 2</code></pre>
+
+<figure>
+<svg viewBox="0 0 600 220" role="img" aria-label="Two processes both use virtual address 0x200000, which maps to two different physical locations">
+  <text x="110" y="20" text-anchor="middle" class="fig-ink2" font-size="12" font-weight="600">VIRTUAL (what each process sees)</text>
+  <text x="470" y="20" text-anchor="middle" class="fig-ink2" font-size="12" font-weight="600">PHYSICAL RAM (reality)</text>
+  <rect x="30" y="40" width="160" height="60" rx="8" fill="var(--s1)"/>
+  <text x="110" y="64" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">PID 2134</text>
+  <text x="110" y="84" text-anchor="middle" fill="#fff" font-size="12" font-family="var(--mono)">0x200000 → 2</text>
+  <rect x="30" y="130" width="160" height="60" rx="8" fill="var(--s2)"/>
+  <text x="110" y="154" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">PID 2135</text>
+  <text x="110" y="174" text-anchor="middle" fill="#fff" font-size="12" font-family="var(--mono)">0x200000 → 2</text>
+  <rect x="390" y="35" width="160" height="170" rx="8" class="fig-surface"/>
+  <rect x="400" y="60" width="140" height="28" rx="4" fill="var(--s1)"/>
+  <text x="470" y="79" text-anchor="middle" fill="#fff" font-size="11" font-family="var(--mono)">0x8A000: 2</text>
+  <rect x="400" y="150" width="140" height="28" rx="4" fill="var(--s2)"/>
+  <text x="470" y="169" text-anchor="middle" fill="#fff" font-size="11" font-family="var(--mono)">0x3F000: 2</text>
+  <path d="M190 70 C 290 70, 300 74, 398 74" fill="none" class="fig-line" stroke-width="2" marker-end="url(#ar)"/>
+  <path d="M190 160 C 290 160, 300 164, 398 164" fill="none" class="fig-line" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="295" y="120" text-anchor="middle" class="fig-ink2" font-size="11">OS + hardware translate</text>
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="var(--ink-2)"/></marker></defs>
+</svg>
+<figcaption>Same virtual address, different physical memory. Neither process can see or damage the other's value. (The physical addresses here are made up; the point is that they differ.)</figcaption>
+</figure>
+
+<div class="box analogy"><span class="tag">Analogy</span>
+Two people both live at "Flat 2". One is in Building A and one is in Building B. The flat number is the <em>virtual address</em>; the building is the hidden part the OS fills in. Lessons 10–13 show exactly how that translation works.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">What is <em>time sharing</em>, and which resource does it virtualize?</p>
+<div class="a">It virtualizes the <strong>CPU</strong>. The OS runs one program for a few milliseconds, then switches to the next, and so on. Done fast enough, every program seems to have its own CPU.</div></div>
+<div class="rc"><p class="q">Mechanism vs policy: which one is the context switch, and which one is the scheduler? Say what question each answers.</p>
+<div class="a">The <strong>context switch</strong> is a <strong>mechanism</strong>: it answers <em>how</em> (save one process's registers, load another's). The <strong>scheduler</strong> is a <strong>policy</strong>: it answers <em>which</em> process runs next.</div></div>
+<div class="rc"><p class="q">What is a process's <em>address space</em>, and why can two processes use the same virtual address without clashing?</p>
+<div class="a">An <strong>address space</strong> is a private, pretend memory that starts at 0 and belongs only to that process. The OS and hardware <strong>translate</strong> each virtual address to a different physical address for each process, so the same virtual address lands in different real memory.</div></div>
+<div class="close">
+<p class="q">Which correctly describes <em>time sharing</em>?</p>
+<ul>
+<li data-true>The OS runs one program for a short while, then switches to another, so each seems to have its own CPU. <span class="why">Taking turns on the CPU, fast enough that nobody notices, is how one CPU is virtualized into many.</span></li>
+<li>The OS gives each program its own CPU core for its whole run, so each seems to have its own CPU. <span class="why">That is splitting in space, and there are far more programs than cores. Time sharing means programs take <strong>turns</strong> on the same CPU.</span></li>
+<li>The OS runs one program until it finishes, then starts another, so each seems to have its own CPU. <span class="why">Running to completion is not sharing. The OS switches after a <strong>short while</strong>, long before the program finishes.</span></li>
+<li>The OS runs one program for a short while, then switches to another, so each seems to have its own memory. <span class="why">Time sharing virtualizes the <strong>CPU</strong>. A private memory comes from each process's <strong>address space</strong>.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which is TRUE about mechanism vs policy?</p>
+<ul>
+<li data-true>The context switch is a mechanism, answering <em>how</em>; the scheduler is a policy, answering <em>which</em>. <span class="why">Saving one process's registers and loading another's is the <em>how</em>; choosing who runs next is the <em>which</em>.</span></li>
+<li>The context switch is a policy, answering <em>which</em>; the scheduler is a mechanism, answering <em>how</em>. <span class="why">Swapped: the context switch is the <strong>mechanism</strong> and the scheduler is the <strong>policy</strong>.</span></li>
+<li>The context switch is a mechanism, answering <em>which</em>; the scheduler is a policy, answering <em>how</em>. <span class="why">The labels are right but the questions are swapped: a mechanism answers <strong>how</strong>, a policy answers <strong>which</strong>.</span></li>
+<li>The context switch is a mechanism, answering <em>how</em>; the scheduler is a mechanism, answering <em>when</em>. <span class="why">The scheduler is a <strong>policy</strong>: it decides <strong>which</strong> process runs next.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which correctly describes a process's <em>address space</em>?</p>
+<ul>
+<li data-true>A private, pretend memory that starts at address 0 and belongs only to that one process. <span class="why">Each process sees its own virtual memory from 0 upward; the OS and hardware translate it to real RAM.</span></li>
+<li>A private, pretend memory that starts at address 0 and is shared by every copy of the program. <span class="why">Each <strong>process</strong> gets its own, even two copies of the same program (that is the <code>mem.c</code> demo).</span></li>
+<li>A real, physical region of RAM that starts at address 0 and belongs only to that one process. <span class="why">It is <strong>virtual</strong>: it starts at 0 only in the process's view, and each address is translated to a different physical one.</span></li>
+<li>A private, pretend memory that starts at address 0 and is never translated by the hardware. <span class="why">Every virtual address is <strong>translated</strong> into a physical address by the OS and hardware.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>From your lab: two copies of mem.c</h2>
+<p>In Lab 5 you wrote your own <code>mem.c</code>: it takes a starting number, puts it in one <code>malloc</code>'d integer, and adds 1 to it every second. It is the demo from "Virtualizing memory" above, in your code.</p>
+<figure class="labcode" data-src="Labs/Lab 5/mem.c" data-lines="12-24" data-hl="13,16,19,22" data-caption="malloc gives p a heap address (line 13). Line 16 prints that address once, then the loop adds 1 to *p every second."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/mem.c">Labs/Lab 5/mem.c</a><span class="lc-span">lines 12–24</span></div><pre><span class="ln" data-n="12">    int *p;</span><span class="ln hl" data-n="13">    p = malloc(sizeof(int));</span><span class="ln" data-n="14">    assert(p != NULL);</span><span class="ln" data-n="15"> </span><span class="ln hl" data-n="16">    printf(&quot;(%d) addr pointed to by p: %p\n&quot;, (int)</span><span class="ln" data-n="17">        getpid(), (void *)p);</span><span class="ln" data-n="18">    </span><span class="ln hl" data-n="19">    *p = atoi(argv[1]); // assign value to addr stored in p</span><span class="ln" data-n="20">    while (1){</span><span class="ln" data-n="21">        sleep(1);</span><span class="ln hl" data-n="22">        *p = *p + 1;</span><span class="ln" data-n="23">        printf(&quot;(%d) value of p: %d\n&quot;, getpid(), *p);</span><span class="ln" data-n="24">    }</span></pre><figcaption>malloc gives p a heap address (line 13). Line 16 prints that address once, then the loop adds 1 to *p every second.</figcaption></figure>
+<p>I compiled your file and ran two copies at the same time (on one run; PIDs and addresses change every run):</p>
+<div class="two-col" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:1rem">
+<pre><code>$ ./mem 100 &amp; ./mem 200 &amp;
+(47638) addr pointed to by p: 0x59fa0465b010
+(47646) addr pointed to by p: 0x5b12fb08d010
+(47638) value of p: 101
+(47646) value of p: 201
+(47638) value of p: 102
+(47646) value of p: 202</code></pre>
+<pre><code># same, with address randomization OFF
+$ setarch -R ./mem 5 &amp; setarch -R ./mem 7 &amp;
+(47704) addr pointed to by p: 0x555555559010
+(47706) addr pointed to by p: 0x555555559010
+(47704) value of p: 6
+(47706) value of p: 8
+(47704) value of p: 7
+(47706) value of p: 9</code></pre>
+</div>
+<p>Read the right-hand run. Both processes print the <strong>same</strong> address, <code>0x555555559010</code>, yet one counts 6, 7… and the other 8, 9…. If that address were a real RAM location, line 22 in each process would be adding 1 to the <em>same</em> integer and the counts would mix. They don't, because each process has its own <strong>address space</strong>: the address is <em>virtual</em>, and the OS and hardware translate it to different physical memory for each process.</p>
+<p>The left-hand run shows different addresses only because Linux randomizes where the heap starts on every run (ASLR). OSTEP's output (<code>0x200000</code> twice) was made with randomization turned off, like the right-hand run.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/intro.pdf">OSTEP §2.2</a></p>
+<figure class="labcode" data-src="Labs/Lab 5/mem.c" data-lines="26-30" data-hl="28-30" data-caption="Your own answers in the file. Answer (c) is the sentence the exam wants."><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%205/mem.c">Labs/Lab 5/mem.c</a><span class="lc-span">lines 26–30</span></div><pre><span class="ln" data-n="26">    //a yea every process gets its own unique pid</span><span class="ln" data-n="27">    //b if aslr on so itd be different otherwise the same</span><span class="ln hl" data-n="28">    //c even tho virtual address looks identical, each process has its own</span><span class="ln hl" data-n="29">    // private page table mapping so values stored there are completely </span><span class="ln hl" data-n="30">    // seperate</span></pre><figcaption>Your own answers in the file. Answer (c) is the sentence the exam wants.</figcaption></figure>
+<div class="labnote">Exam angle: "two processes print the same address but different values: why?" Answer with your comment (c): the address is virtual, each process has its own address space, and translation sends it to different physical memory.</div>
+<div class="checkpoint">
+<div class="rc"><p class="q">With randomization off, you run <code>./mem 10</code> and <code>./mem 50</code> together. What do the first three "value" lines of each process show, and do their addresses match?</p>
+<div class="a">The first prints <strong>11, 12, 13</strong>; the second prints <strong>51, 52, 53</strong>. The addresses <strong>match</strong>, but each process changes only its own integer, because the same virtual address is translated to different physical memory.</div></div>
+<div class="rc"><p class="q">Which line of <code>mem.c</code> would show the problem if the two processes really shared one physical integer, and what would you see?</p>
+<div class="a"><strong>Line 22</strong>, <code>*p = *p + 1;</code>. Both processes would be adding 1 to the <strong>same</strong> integer, so each one's printed value would also include the other's increments: the two counts would mix instead of each climbing by 1 from its own start.</div></div>
+<div class="rc"><p class="q">What happens if you run your <code>mem.c</code> as just <code>./mem</code>, with no number? Name the lines.</p>
+<div class="a"><code>argc</code> is <strong>1</strong>, not 2, so the check on <strong>lines 7–10</strong> prints <code>usage: mem &lt;value&gt;</code> to standard error and calls <code>exit(1)</code>. Nothing is allocated.</div></div>
+<div class="close">
+<p class="q">Two copies of your <code>mem.c</code> run with address randomization turned off. Which is TRUE?</p>
+<ul>
+<li data-true>Both print the same address for <code>p</code>, and each value climbs by 1 from its own starting number. <span class="why">Same virtual address, but separate address spaces, so each process has its own integer (6, 7… and 8, 9… in the run above).</span></li>
+<li>Both print the same address for <code>p</code>, so both values climb together from one shared starting number. <span class="why">The same <strong>virtual</strong> address does not mean shared memory: each process has its own copy of the integer.</span></li>
+<li>Each prints a different address for <code>p</code>, and each value climbs by 1 from its own starting number. <span class="why">With randomization <strong>off</strong>, both get the same virtual address (<code>0x555555559010</code> above). Different addresses come from ASLR.</span></li>
+<li>Both print the same address for <code>p</code>, and each value climbs by 2 because both processes add 1 to it. <span class="why">Each process adds 1 only to <strong>its own</strong> integer, so each climbs by 1.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">What is the address that lines 16–17 of your <code>mem.c</code> print?</p>
+<ul>
+<li data-true>A virtual address in that process's own address space, which the hardware translates to a physical one. <span class="why">Programs only ever see virtual addresses; translation to real RAM happens behind their back.</span></li>
+<li>A physical RAM address, so two processes that print the same one are sharing that integer. <span class="why">It is <strong>virtual</strong>. Two processes can print the same one and still use different physical memory.</span></li>
+<li>A virtual address that is equal to the physical address whenever randomization is turned off. <span class="why">Turning off ASLR only makes the <strong>virtual</strong> address repeat. It is still translated.</span></li>
+<li>A virtual address in one address space that every process running <code>mem</code> shares. <span class="why">Every <strong>process</strong> gets its own address space, even two copies of the same program.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which is TRUE about running your file as <code>./mem 5</code>?</p>
+<ul>
+<li data-true><code>argc</code> is 2, so the check passes; <code>*p</code> starts at 5 and the first value printed is 6. <span class="why">Line 19 sets 5, then the loop sleeps, adds 1 and only then prints: 6 first.</span></li>
+<li><code>argc</code> is 1, so the check fails; the program prints its usage line and exits. <span class="why"><code>argc</code> counts the program name too: <code>./mem 5</code> gives <strong>2</strong>.</span></li>
+<li><code>argc</code> is 2, so the check passes; <code>*p</code> starts at 5 and the first value printed is 5. <span class="why">Line 22 adds 1 <strong>before</strong> line 23 prints, so the first value is 6.</span></li>
+<li><code>argc</code> is 2, so the check passes; the first value printed is 6, before the address line. <span class="why">The address is printed <strong>once, before</strong> the loop (lines 16–17).</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Piece 2 · Concurrency</h2>
+<p>A <strong>thread</strong> is one stream of execution inside a program. One process can have several threads.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Two <em>processes</em></th><th>Two <em>threads</em> in one process</th></tr></thead>
+<tbody>
+<tr><td>Address space (code, heap, globals)</td><td>Separate</td><td><strong>Shared</strong></td></tr>
+<tr><td>Open files</td><td>Separate</td><td><strong>Shared</strong></td></tr>
+<tr><td>Stack, registers, PC</td><td>Separate</td><td>Separate (each thread has its own)</td></tr>
+</tbody></table></div>
+
+<p>Sharing memory is fast, but it's also dangerous. Here's the program from the slides: two threads each run <code>counter++</code> ten million times.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/intro.pdf">OSTEP Fig 2.5</a><span class="cite">Zafar Lecture 1, slides 13–14</span> You'd expect 20,000,000, but you get a different wrong number almost every run.</p>
+
+<p><strong>Why?</strong> <code>counter++</code> looks like one step, but the CPU does it in three:</p>
+<ol class="steps">
+<li><strong>LOAD</strong>: copy <code>counter</code> from memory into this thread's private register</li>
+<li><strong>ADD</strong>: add 1 to the register</li>
+<li><strong>STORE</strong>: write the register back to <code>counter</code></li>
+</ol>
+<p>If the OS switches threads <em>between</em> those steps, both threads can read the same old value, and one increment gets lost. That's a <strong>race condition</strong>: the result depends on the timing.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Step</th><th class="num">A's register</th><th class="num">B's register</th><th class="num">counter (memory)</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>start</td><td class="num">–</td><td class="num">–</td><td class="num">10</td></tr>
+<tr><td>1</td><td>A: LOAD</td><td class="num">10</td><td class="num">–</td><td class="num">10</td></tr>
+<tr><td>2</td><td>A: ADD</td><td class="num">11</td><td class="num">–</td><td class="num">10</td></tr>
+<tr><td>3</td><td><span class="hl">⚡ switch!</span> B: LOAD</td><td class="num">11</td><td class="num">10</td><td class="num">10</td></tr>
+<tr><td>4</td><td>B: ADD</td><td class="num">11</td><td class="num">11</td><td class="num">10</td></tr>
+<tr><td>5</td><td>B: STORE</td><td class="num">11</td><td class="num">11</td><td class="num">11</td></tr>
+<tr><td>6</td><td>A: STORE</td><td class="num">11</td><td class="num">11</td><td class="num"><strong>11</strong> (should be 12)</td></tr>
+</tbody></table></div>
+<div class="box exam"><span class="tag">How to fill these tables</span>
+Each thread has its <strong>own</strong> register. <code>counter</code> only changes on a STORE. On every LOAD, copy whatever value is in memory <em>right now</em>. That's the whole trick.</div>
+<p class="small">The fix (locks) is in a later part of the course and isn't on this midterm.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">List the three machine steps hidden inside <code>counter++</code>, and say what a race condition is.</p>
+<div class="a"><strong>LOAD</strong> (memory → register), <strong>ADD</strong> 1 to the register, <strong>STORE</strong> (register → memory). A <strong>race condition</strong> is when the result depends on the timing: a switch between those steps can make an increment get lost.</div></div>
+<div class="rc"><p class="q"><code>counter</code> starts at 7. Threads A and B each run <code>counter++</code> once, in this order: A LOAD → B LOAD → B ADD → B STORE → A ADD → A STORE. What is the final value of <code>counter</code>?</p>
+<div class="a"><strong>8</strong> (not 9). A loads 7 and B loads 7. B stores 8. A then adds 1 to its own old 7 and also stores 8, overwriting B's work.</div></div>
+<div class="close">
+<p class="q">Which is TRUE about two <em>threads</em> in the same process?</p>
+<ul>
+<li data-true>They share the heap and global variables, but each one has its own stack and PC. <span class="why">Threads share the address space (code, heap, globals) and open files; each has its own stack, registers and PC.</span></li>
+<li>They share the stack and PC, but each one has its own heap and global variables. <span class="why">Swapped: the <strong>heap and globals</strong> are shared, the <strong>stack and PC</strong> are per thread.</span></li>
+<li>They share the heap, global variables and stack, but each one has its own PC. <span class="why">Each thread also has its <strong>own stack</strong>, because each is at a different point in its own function calls.</span></li>
+<li>They share nothing in memory, and each one has its own heap, globals, stack and PC. <span class="why">That describes two <em>processes</em>. Threads <strong>share</strong> the address space (code, heap, globals).</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">A global <code>int counter</code> is incremented by two <em>threads</em> of one process, and, in a separate run, by two <em>processes</em> running the same program. Which is TRUE?</p>
+<ul>
+<li data-true>The two threads update one shared counter; the two processes each update their own copy. <span class="why">Threads share globals, so they can race on one counter; processes have separate address spaces.</span></li>
+<li>The two threads each update their own copy; the two processes update one shared counter. <span class="why">Swapped: <strong>threads</strong> share the counter; <strong>processes</strong> each have their own.</span></li>
+<li>The two threads update one shared counter; the two processes update one shared counter too. <span class="why">Two processes have <strong>separate</strong> address spaces, just like the two copies of <code>mem.c</code>.</span></li>
+<li>The two threads each update their own copy; the two processes each update their own copy. <span class="why">Threads <strong>share</strong> globals; that sharing is exactly what makes the race possible.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which sequence is right for the machine steps inside <code>counter++</code>?</p>
+<ul>
+<li data-true>LOAD counter into this thread's register, ADD 1 to that register, STORE the register back to counter. <span class="why">Three separate steps, and memory only changes on the STORE.</span></li>
+<li>LOAD counter into this thread's register, STORE the register back to counter, ADD 1 to that register. <span class="why">Wrong order: the ADD comes <strong>before</strong> the STORE, otherwise the old value is written back.</span></li>
+<li>LOAD counter into a register both threads share, ADD 1 to that register, STORE the register back to counter. <span class="why">Each thread has its <strong>own</strong> registers. Only <code>counter</code> in memory is shared.</span></li>
+<li>LOAD counter into this thread's register, ADD 1 to counter in memory, STORE the register back to counter. <span class="why">The ADD changes the <strong>register</strong>, not memory. <code>counter</code> only changes on the STORE.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q"><code>counter</code> starts at 4. Threads A and B each run <code>counter++</code> once: A LOAD → B LOAD → B ADD → A ADD → A STORE → B STORE. Which is TRUE?</p>
+<ul>
+<li data-true>counter ends at 5: both threads loaded 4, so both store 5. <span class="why">Both registers start from the same old 4, so one increment is lost.</span></li>
+<li>counter ends at 6: each thread adds 1, so the two adds give 6. <span class="why">Both ADDs work on a register that holds the <strong>old 4</strong>, so both produce 5.</span></li>
+<li>counter ends at 4: B's STORE overwrites A's STORE with the old value. <span class="why">B stores its <strong>register</strong>, which holds 5, not the old 4.</span></li>
+<li>counter ends at 6: A stores 5, then B loads 5 and stores 6. <span class="why">B loaded <strong>before</strong> A stored, so B's register holds 4, not 5.</span></li>
+</ul>
+</div>
+<div class="close">
+<p class="q">Which is TRUE about a <em>race condition</em>?</p>
+<ul>
+<li data-true>The result depends on how the threads' steps happen to interleave, so it can differ from run to run. <span class="why">Where a switch lands between a LOAD and its STORE decides how many increments are lost.</span></li>
+<li>The result depends on which thread was created first, so it is the same on every run. <span class="why">It depends on the <strong>timing</strong> of the interleaving, which changes from run to run.</span></li>
+<li>The result depends on how the threads' steps happen to interleave, but only on a machine with several CPUs. <span class="why">It happens on <strong>one</strong> CPU too: a switch between a thread's LOAD and STORE is enough.</span></li>
+<li>The result is always exactly half the expected value, because one thread's work is lost. <span class="why">Only <strong>some</strong> increments are lost, a different number each run (e.g. 18,921,533 instead of 20,000,000).</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Piece 3 · Persistence</h2>
+<p>RAM is <strong>volatile</strong>: it forgets everything when the power goes. Disks and SSDs are <strong>persistent</strong>. The part of the OS that manages persistent data is the <strong>file system</strong>. It organises files and directories, tracks where each file's data lives, and stays consistent even if the machine crashes mid-write. That's enough for now.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">RAM is <em>volatile</em>, a disk is <em>persistent</em>. What do those words mean, and which part of the OS manages persistent data?</p>
+<div class="a"><strong>Volatile</strong>: loses its contents when the power goes. <strong>Persistent</strong>: keeps data across power loss. The <strong>file system</strong> manages persistent data (files, directories, staying consistent after a crash).</div></div>
+<div class="close">
+<p class="q">Which is TRUE about persistence?</p>
+<ul>
+<li data-true>RAM is volatile and a disk is persistent; the file system is the part of the OS that manages persistent data. <span class="why">RAM forgets everything on power loss; disks and SSDs keep data, and the file system organises it.</span></li>
+<li>RAM is persistent and a disk is volatile; the file system is the part of the OS that manages persistent data. <span class="why">Swapped: <strong>RAM</strong> is volatile and the <strong>disk</strong> is persistent.</span></li>
+<li>RAM is volatile and a disk is persistent; the virtual memory system is the part of the OS that manages persistent data. <span class="why">Address spaces virtualize RAM. Persistent data is managed by the <strong>file system</strong>.</span></li>
+<li>RAM is volatile and a disk is persistent; the file system manages persistent data and assumes no crash mid-write. <span class="why">The file system must stay consistent <strong>even if</strong> the machine crashes mid-write.</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>What a good OS aims for</h2>
+<div class="table-wrap"><table>
+<tbody>
+<tr><td><strong>Abstraction</strong></td><td>Make hardware easy to use: processes, address spaces and files instead of raw registers and disk blocks</td></tr>
+<tr><td><strong>Performance</strong></td><td>Keep the OS's own overhead (time and space) low</td></tr>
+<tr><td><strong>Protection / isolation</strong></td><td>One program can't harm another program or the OS</td></tr>
+<tr><td><strong>Reliability</strong></td><td>The OS must not crash, because if it fails, everything fails</td></tr>
+<tr><td><strong>Also</strong></td><td>Energy efficiency, security, mobility</td></tr>
+</tbody></table></div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">List four design goals of a good operating system.</p>
+<div class="a"><strong>Abstraction</strong> (easy to use), <strong>performance</strong> (low overhead), <strong>protection / isolation</strong> (programs can't harm each other or the OS), <strong>reliability</strong> (the OS must not crash). Also: energy efficiency, security, mobility.</div></div>
+<div class="rc"><p class="q">A buggy game overwrites memory belonging to your text editor. Which OS design goal has failed?</p>
+<div class="a"><strong>Protection / isolation</strong>: one program should never be able to harm another program or the OS.</div></div>
+<div class="close">
+<p class="q">Which correctly matches an OS design goal to its meaning?</p>
+<ul>
+<li data-true>Protection / isolation: one program can't harm another program or the OS. <span class="why">Isolating processes from one another is the key to protection.</span></li>
+<li>Reliability: one program can't harm another program or the OS. <span class="why">Reliability means the <strong>OS itself</strong> must not crash. Not harming each other is <strong>protection / isolation</strong>.</span></li>
+<li>Protection / isolation: the OS keeps its own time and space overhead low. <span class="why">Low overhead is <strong>performance</strong>.</span></li>
+<li>Abstraction: one program can't harm another program or the OS. <span class="why">Abstraction means making the hardware <strong>easy to use</strong> (processes, address spaces, files).</span></li>
+</ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Practice</h2>
+<p>Answer from memory first, then check. Struggling a little is what makes it stick.</p>
+<p class="score" data-score></p>
+
+<div class="mcq" data-correct="2">
+<p class="q">1. Two copies of <code>mem.c</code> both print <code>addr 0x200000</code> yet count independently. Why?</p>
+<button>The OS runs both copies one after another.</button>
+<button>Both processes are writing into one shared integer.</button>
+<button>Each virtual address maps to different physical memory.</button>
+<button>The printf statement prints a fake, random address.</button>
+<div class="why">Each process has its own <strong>address space</strong>. The OS maps the same virtual address to a different physical location for each one, so they never collide. This is memory virtualization.</div>
+</div>
+
+<div class="num" data-answer="6">
+<p class="q">2. <code>counter</code> starts at 5. Threads A and B each run <code>counter++</code> once, interleaved like this: A LOAD → B LOAD → A ADD → A STORE → B ADD → B STORE. What is the final value of <code>counter</code>?</p>
+<div class="why">A loads 5, B loads 5 (A hasn't stored yet). A stores 6, then B adds 1 to <em>its own</em> 5 and also stores 6. One increment is lost: <strong>6</strong>, not 7.</div>
+</div>
+
+<div class="mcq" data-correct="1">
+<p class="q">3. Which of these do two threads in the same process NOT share?</p>
+<button>Heap memory</button>
+<button>Their stacks</button>
+<button>Global variables</button>
+<button>Open files</button>
+<div class="why">Threads share the address space (code, heap, globals) and open files, but each thread has its <strong>own stack</strong>, registers and PC, because each one is at a different point in its own function calls.</div>
+</div>
+
+<div class="mcq" data-correct="0">
+<p class="q">4. "Pick the job with the least remaining time to run next." Is that a mechanism or a policy?</p>
+<button>A policy: it decides which.</button>
+<button>A mechanism: it decides how.</button>
+<div class="why">Choosing <em>which</em> process runs is a <strong>policy</strong> (scheduling). <em>How</em> the switch is carried out (saving and restoring registers) is the <strong>mechanism</strong> (context switch).</div>
+</div>
+
+<details class="recall"><summary>5. Name the three easy pieces and say what each one means in a single line.</summary>
+<div><strong>Virtualization</strong>: turn one physical CPU or memory into many private virtual ones. <strong>Concurrency</strong>: get several threads that share data to behave correctly. <strong>Persistence</strong>: keep data safe on disk across crashes and power loss (the file system).</div></details>
+
+<details class="recall"><summary>6. Give two reasons an OS bothers virtualizing resources at all.</summary>
+<div>(1) <strong>Sharing</strong>: many programs can use one physical CPU or memory (e.g. time-slicing the CPU). (2) <strong>Isolation and ease of use</strong>: each program gets a simple, private, uniform view (like its own address space), so programs can't interfere with each other and are easier to write.</div></details>
+
+<!-- ======================================================== -->
+<div class="source"><span class="tag">Primary source: read this next</span>
+<p style="margin:.3rem 0 0"><a href="https://pages.cs.wisc.edu/~remzi/OSTEP/intro.pdf">OSTEP Chapter 2: Introduction to Operating Systems</a> (≈20 pages, very readable; also pp. 3–24 of your <code>OS - Book.pdf</code>). Skim §2.1–2.4 and the design goals in §2.5.</p></div>
+
+<p class="ask">💬 Something unclear? Ask me (your Claude teacher) anything, e.g. <em>"explain the race table again with different numbers"</em> or <em>"quiz me on threads vs processes"</em>.</p>
+
+<nav class="nextprev"><a href="../index.html">← Course map</a><a href="0002-the-process.html">Lesson 2 · The process →</a></nav>
+</main>
+</body>
+</html>

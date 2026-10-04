@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OS Glossary</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/recall.js" defer></script>
+<style> dl.gloss dt { font-family: var(--sans); font-size: .95rem; } dl.gloss dd { font-size: .95rem; } h2 a.l { font-size: .7rem; font-family: var(--sans); font-weight: 400; margin-left: .5rem; } </style>
+</head>
+<body class="ref">
+<main>
+<nav class="crumbs"><a href="../index.html">← Course map</a><a href="../drill.html">Test yourself: spot the true one →</a><a href="cheatsheet.html">Cheat sheet →</a></nav>
+<p class="kicker">Reference</p>
+<h1>Glossary</h1>
+<p class="lede">One tight definition per term. The lessons use these exact words. <em>Avoid</em> lists other names you may see for the same idea.</p>
+
+<h2>Processes &amp; the CPU <a class="l" href="../lessons/0002-the-process.html">L2–4</a></h2>
+<dl class="gloss">
+<dt>Process</dt><dd>A running program: the program plus its machine state. <span class="avoid">Avoid: task, job</span></dd>
+<dt>Machine state</dt><dd>Everything a running program can read or change: its address space, registers (PC, SP) and open files.</dd>
+<dt>Program counter (PC)</dt><dd>The register holding the address of the next instruction to execute.</dd>
+<dt>Stack pointer (SP)</dt><dd>The register pointing to the top of the stack, which holds parameters, local variables and return addresses.</dd>
+<dt>Thread</dt><dd>One stream of execution inside a process. It shares the process's address space and files but has its own stack, registers and PC.</dd>
+<dt>Ready / Blocked</dt><dd>Ready: able to run but not chosen yet (xv6 RUNNABLE). Blocked: can't run until an event such as I/O finishes (xv6 SLEEPING). <span class="avoid">Avoid: "waiting" (ambiguous)</span></dd>
+<dt>PCB (process control block)</dt><dd>The per-process structure (xv6 <code>struct proc</code>) holding the PID, state, saved registers, memory info and open files. The <em>process list</em> is the collection of all PCBs.</dd>
+<dt>Zombie</dt><dd>A child that has exited but hasn't yet been reaped by its parent's <code>wait()</code>. <span class="avoid">Avoid: orphan</span></dd>
+<dt>Orphan</dt><dd>A child whose parent exited first. It is adopted (and later reaped) by init.</dd>
+<dt>fork()</dt><dd>A system call that creates a near-copy child process. It returns 0 in the child, the child's PID in the parent, and −1 on failure.</dd>
+<dt>exec()</dt><dd>Replaces the calling process's program. The PID stays the same, and it never returns on success.</dd>
+<dt>wait()</dt><dd>Blocks the parent until one of <em>its own</em> children finishes, then reaps it.</dd>
+<dt>Limited direct execution (LDE)</dt><dd>Running programs directly on the CPU, but limited by hardware modes and a timer so the OS keeps control.</dd>
+<dt>User mode / kernel mode</dt><dd>Hardware privilege levels. User code can't run privileged instructions; the kernel can do anything.</dd>
+<dt>Trap</dt><dd>An instruction that jumps into the kernel and raises the privilege level. The hardware saves registers to the kernel stack. <span class="avoid">Avoid: "interrupt" (that comes from a device)</span></dd>
+<dt>Trap table</dt><dd>The table of handler addresses the OS installs at boot, with a privileged instruction.</dd>
+<dt>Timer interrupt</dt><dd>A hardware interrupt every few ms that hands control back to the OS, even from a <code>while(1)</code> loop.</dd>
+<dt>Context switch</dt><dd>Saving one process's registers into its PCB and restoring another's, so a return-from-trap resumes the new process. <span class="avoid">Avoid: "mode switch" (that's user ↔ kernel)</span></dd>
+</dl>
+
+<h2>Scheduling <a class="l" href="../lessons/0005-scheduling-basics.html">L5–9</a></h2>
+<dl class="gloss">
+<dt>Turnaround time</dt><dd>Completion time − arrival time.</dd>
+<dt>Response time</dt><dd>First-run time − arrival time.</dd>
+<dt>Preemptive</dt><dd>Able to stop a running job before it finishes in order to run another one (STCF, RR, MLFQ).</dd>
+<dt>Convoy effect</dt><dd>Short jobs stuck waiting behind a long one under FIFO.</dd>
+<dt>STCF</dt><dd>Preemptive SJF: at every arrival, run the job with the least remaining time. <span class="avoid">Avoid: SRTF (same thing, not the slides' name)</span></dd>
+<dt>Time slice (quantum)</dt><dd>How long RR runs a job before switching. It must be a multiple of the timer period.</dd>
+<dt>MLFQ</dt><dd>Several priority queues; the highest non-empty queue always runs, and jobs move between queues based on how they use the CPU.</dd>
+<dt>Time allotment</dt><dd>The total CPU time a job may use at one MLFQ level before it is demoted, however many times it gives up the CPU.</dd>
+<dt>Priority boost</dt><dd>MLFQ Rule 5: every period S, all jobs move to the top queue.</dd>
+<dt>Starvation</dt><dd>A runnable job never gets the CPU because higher-priority work never runs out. <span class="avoid">Avoid: deadlock</span></dd>
+<dt>Gaming the scheduler</dt><dd>Giving up the CPU just before a slice ends in order to stay at high priority.</dd>
+<dt>Proportional share</dt><dd>Scheduling that guarantees each job a percentage of the CPU instead of optimizing turnaround or response.</dd>
+<dt>Ticket</dt><dd>A unit of share. A job's fraction of all tickets is its fraction of the CPU.</dd>
+<dt>Stride / pass</dt><dd>Stride = BIG ÷ tickets. Pass is the job's running counter; the lowest pass runs next, then pass += stride.</dd>
+<dt>vruntime</dt><dd>CFS's virtual runtime. It grows by runtime × 1024/weight, so high-weight tasks age more slowly.</dd>
+<dt>Weight</dt><dd>A number derived from the nice value (nice 0 = 1024). A bigger weight means a bigger CPU share.</dd>
+<dt>sched_latency / min_granularity</dt><dd>The window in which every runnable task runs once, and the floor on any task's slice.</dd>
+<dt>min_vruntime</dt><dd>The smallest vruntime among runnable tasks. New and waking tasks are given it.</dd>
+<dt>Cache affinity</dt><dd>A process runs faster on the CPU whose cache still holds its data.</dd>
+<dt>SQMS / MQMS</dt><dd>Single-queue multiprocessor scheduling (one global queue) and multi-queue multiprocessor scheduling (one queue per CPU).</dd>
+<dt>Load imbalance</dt><dd>Per-CPU queues holding unequal amounts of work, so shares are unfair or a CPU sits idle.</dd>
+<dt>Migration / work stealing</dt><dd>Moving jobs between CPU queues. With work stealing, a less-busy queue takes jobs from a fuller one.</dd>
+</dl>
+
+<h2>Memory <a class="l" href="../lessons/0010-address-spaces.html">L10–13</a></h2>
+<dl class="gloss">
+<dt>Address space</dt><dd>A process's private view of memory (code, heap, stack), starting at 0. <span class="avoid">Avoid: memory map</span></dd>
+<dt>Virtual address (VA)</dt><dd>Any address a program sees. Hardware translates it to a physical address (PA). <span class="avoid">Avoid: logical address</span></dd>
+<dt>Dangling pointer</dt><dd>A pointer that still holds the address of memory that has been freed.</dd>
+<dt>Use-after-free</dt><dd>Reading or writing through a dangling pointer. It is undefined behaviour and can appear to work.</dd>
+<dt>Double free</dt><dd>Calling <code>free()</code> twice on the same block. It is a run-time error (undefined behaviour), usually caught by the allocator.</dd>
+<dt>Memory leak</dt><dd>Heap memory that is allocated and never freed.</dd>
+<dt>Address translation</dt><dd>Hardware turning every VA into the PA where the data really lives.</dd>
+<dt>MMU</dt><dd>The memory management unit: the part of the CPU that holds base/bounds (or segment registers) and translates and checks addresses.</dd>
+<dt>Base and bounds (dynamic relocation)</dt><dd>PA = VA + base, valid only if VA &lt; bounds (the size).</dd>
+<dt>Free list</dt><dd>The OS's list of physical memory ranges that aren't in use.</dd>
+<dt>Segment</dt><dd>A contiguous piece of the address space with one role (code, heap, stack) and its own base and bounds.</dd>
+<dt>Negative offset</dt><dd>For the downward-growing stack: offset − max segment size, so PA = base + negative offset.</dd>
+<dt>Internal fragmentation</dt><dd>Wasted space <em>inside</em> an allocation, such as the unused heap–stack gap under base and bounds.</dd>
+<dt>External fragmentation</dt><dd>Free memory split into small holes <em>between</em> allocations, so a large request fails even though enough total space is free.</dd>
+<dt>Compaction</dt><dd>Copying segments together, and updating their bases, to merge the free holes. It is expensive.</dd>
+</dl>
+
+<nav class="nextprev"><a href="../index.html">← Course map</a><a href="cheatsheet.html">Cheat sheet →</a></nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,42 @@
+execve("./sys", ["./sys"], 0x7ffc122f0600 /* 63 vars */) = 0
+brk(NULL)                               = 0x5cb6c6108000
+mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x707c78408000
+access("/etc/ld.so.preload", R_OK)      = -1 ENOENT (No such file or directory)
+openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+fstat(3, {st_mode=S_IFREG|0644, st_size=113547, ...}) = 0
+mmap(NULL, 113547, PROT_READ, MAP_PRIVATE, 3, 0) = 0x707c783ec000
+close(3)                                = 0
+openat(AT_FDCWD, "/usr/lib/x86_64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3
+read(3, "\177ELF\2\1\1\3\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0 \250\2\0\0\0\0\0"..., 832) = 832
+pread64(3, "\6\0\0\0\4\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0"..., 840, 64) = 840
+fstat(3, {st_mode=S_IFREG|0755, st_size=2186512, ...}) = 0
+pread64(3, "\6\0\0\0\4\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0"..., 840, 64) = 840
+mmap(NULL, 2231696, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0x707c78000000
+mmap(0x707c78028000, 1671168, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x28000) = 0x707c78028000
+mmap(0x707c781c0000, 319488, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x1c0000) = 0x707c781c0000
+mmap(0x707c7820e000, 24576, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x20d000) = 0x707c7820e000
+mmap(0x707c78214000, 52624, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x707c78214000
+close(3)                                = 0
+mmap(NULL, 12288, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x707c783e9000
+arch_prctl(ARCH_SET_FS, 0x707c783e9740) = 0
+set_tid_address(0x707c783e9d68)         = 25848
+set_robust_list(0x707c783e9a20, 24)     = 0
+rseq(0x707c783e9680, 0x21, 0, 0x53053053) = 0
+mprotect(0x707c7820e000, 16384, PROT_READ) = 0
+mprotect(0x5cb6a7be1000, 4096, PROT_READ) = 0
+mprotect(0x707c7844d000, 8192, PROT_READ) = 0
+prlimit64(0, RLIMIT_STACK, NULL, {rlim_cur=8192*1024, rlim_max=RLIM64_INFINITY}) = 0
+getrandom("\xcf\x2b\x25\xca\x75\x9d\x8c\xf8", 8, GRND_NONBLOCK) = 8
+munmap(0x707c783ec000, 113547)          = 0
+getpid()                                = 25848
+getuid()                                = 1000
+openat(AT_FDCWD, "log.txt", O_WRONLY|O_CREAT|O_APPEND, 0644) = 3
+write(3, "PID: 25848 \t UID: 1000 \n", 24) = 24
+write(1, "Log written to file.\n\0", 22) = 22
+write(1, "Enter a message: ", 17)       = 17
+read(0, "hello khan\n", 63)             = 11
+write(3, "User input: hello khan\n", 23) = 23
+write(1, "Your input was saved\n", 21)  = 21
+close(3)                                = 0
+exit_group(0)                           = ?
++++ exited with 0 +++

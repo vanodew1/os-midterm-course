@@ -1,0 +1,21 @@
+# Whitelist: only the website goes into the repo (and onto Render).
+# Textbook, slides, quizzes/solutions, notes, binaries and write-ups stay local.
+/*
+!/.gitignore
+!/render.yaml
+!/index.html
+!/drill.html
+!/review.html
+!/assets/
+!/lessons/
+!/reference/
+!/Labs/
+/assets/course.css
+/assets/steps.js
+/lessons/0001-what-is-a-process.html
+/Labs/**
+!/Labs/*/
+!/Labs/*/code/
+!/Labs/**/*.c
+!/Labs/Lab 3/trace.log
+!/Labs/Lab 2/code/README.txt

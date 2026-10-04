@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Base and Bounds</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/quiz.js" defer></script>
+<script src="../assets/translator.js" defer></script>
+<script src="../assets/recall.js" defer></script>
+<style>
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+.tl td:first-child { white-space: nowrap; }
+.tl td.os { color: var(--s1); }
+.tl td.hw { color: var(--s2); }
+.tl td.pr { color: var(--s3); }
+.tl tr.phase td { background: var(--surface); font-weight: 600; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">← Course map</a><span>Lesson 12 of 13 · OSTEP Ch 15 · ~18 min</span></nav>
+
+<p class="kicker">Lesson 12 · Memory virtualization</p>
+<h1>Base and bounds: moving a program without it noticing</h1>
+<p class="lede">Every program thinks its memory starts at address 0. Two tiny registers in the CPU quietly add an offset to every address, and stop the program the moment it reaches outside its own box.</p>
+
+<div class="box key"><span class="tag">The one-sentence version</span>
+On every memory access the hardware computes <strong>physical address = virtual address + base</strong>, after checking that the virtual address is <strong>less than bounds</strong>. If the check fails, it raises an exception and the OS takes over.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.3</a></div>
+
+<div class="warmup">
+<div class="rc"><div class="q">Lesson 11: Name the bug.<pre><code>char *a = malloc(10);
+a = malloc(20);
+free(a);</code></pre></div><div class="a"><strong>Memory leak</strong>. The second malloc overwrites <code>a</code>, the only pointer to the first 10-byte block, so that block becomes unreachable and is never freed. Only the 20-byte block gets freed.</div></div>
+<div class="rc"><p class="q">Lesson 7: Stride scheduling with a big number of 10,000. A has 50 tickets, B has 200. Both passes start at 0 (ties go to the first-listed job). Give each stride, and say who runs in the first three turns.</p><div class="a">Stride = 10,000 / tickets: A = <strong>200</strong>, B = <strong>50</strong>.<br>Turn 1: tie at 0 → <strong>A</strong> (pass A = 200). Turn 2: B has 0 → <strong>B</strong> (B = 50). Turn 3: B has 50 → <strong>B</strong> (B = 100). So <strong>A, B, B</strong>.</div></div>
+<div class="rc"><p class="q">Lesson 4: When the timer interrupt fires while a user process runs, what does the hardware do, and why does the OS need this timer at all?</p><div class="a">The hardware <strong>saves the process's registers</strong> (onto its kernel stack), <strong>switches to kernel mode</strong> and <strong>jumps to the OS's timer handler</strong> (from the trap table). Without the timer, a process that never makes a system call could keep the CPU forever; the timer lets the OS <strong>regain control</strong> and maybe context-switch.</div></div>
+</div>
+
+<!-- ======================================================== -->
+<h2>The goal: efficient, but controlled</h2>
+<p>Back in Lesson 4, <strong>limited direct execution</strong> (LDE) let a program run straight on the CPU, with the OS stepping in only at key moments such as a system call or a timer interrupt. We want the same deal for memory:<span class="cite">Bilal slides, Ch 15</span></p>
+<ul>
+<li><strong>Efficiency</strong>: the program uses memory at full speed, so the hardware has to do the work.</li>
+<li><strong>Control</strong>: no program can touch memory that isn't its own, so the OS has to set things up and step in when something goes wrong.</li>
+</ul>
+<p>The technique is called <strong>hardware-based address translation</strong>. On <em>every</em> instruction fetch, load and store, the hardware changes the <strong>virtual address</strong> the program used into the <strong>physical address</strong> where the data really lives.</p>
+
+<div class="box analogy"><span class="tag">Interposition</span>
+OSTEP calls this <strong>interposition</strong>: something sits in the middle of every request and quietly changes it, without the client noticing. Think of a hotel switchboard. You dial "room 12", and the switchboard adds the floor offset and connects you to extension 3012. You never needed to know the real number.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15 aside</a></div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">What is "hardware-based address translation", and why is it done by hardware rather than by the OS?</p><div class="a">On <strong>every</strong> instruction fetch, load and store, the hardware turns the program's <strong>virtual address</strong> into the <strong>physical address</strong> where the data really is. It must be hardware for <strong>efficiency</strong>: the OS can't run on every access. The OS keeps <strong>control</strong> by setting it up and handling faults (like LDE for memory).</div></div>
+<div class="close">
+  <p class="q">Memory virtualization aims for efficiency and control, as LDE did for the CPU. Which is TRUE?</p>
+  <ul>
+  <li data-true>For efficiency, the hardware translates each access; for control, the OS sets up the translation and steps in when something goes wrong. <span class="why">Hardware is fast enough to run on every access; the OS manages it (sets registers, handles faults) without running on each access.</span></li>
+  <li>For efficiency, the OS translates each access; for control, the hardware sets up the translation and steps in when something goes wrong. <span class="why">Swapped. The <strong>hardware</strong> translates each access (fast); the <strong>OS</strong> sets things up and handles faults.</span></li>
+  <li>For efficiency, the hardware translates each access; for control, the OS checks every access and steps in when something goes wrong. <span class="why">The OS can't run on every access (that would kill efficiency). The <strong>hardware</strong> does the check too; the OS steps in only on a <strong>fault</strong>.</span></li>
+  <li>For efficiency, the hardware translates only loads and stores; for control, the OS sets up the translation and steps in when something goes wrong. <span class="why">Instruction fetches use virtual addresses too: the hardware translates <strong>every</strong> fetch, load and store.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">OSTEP calls address translation an example of <strong>interposition</strong>. Which is TRUE?</p>
+  <ul>
+  <li data-true>The hardware sits between the process and memory and turns each virtual address into a physical one, without the process noticing. <span class="why">OSTEP's tip: the hardware interposes on each memory access. Its usual benefit is <strong>transparency</strong>: the client needs no changes.</span></li>
+  <li>The hardware sits between the process and memory and turns each physical address into a virtual one, without the process noticing. <span class="why">Reversed. The process issues <strong>virtual</strong> addresses; the hardware turns them into <strong>physical</strong> ones.</span></li>
+  <li>The OS sits between the process and memory and turns each virtual address into a physical one, without the process noticing. <span class="why">Wrong actor. Running OS code on every access would be far too slow; the <strong>hardware</strong> interposes.</span></li>
+  <li>The hardware sits between the process and memory and turns each virtual address into a physical one, after the process asks with a system call. <span class="why">No request is needed: interposition is <strong>transparent</strong>. The process just uses its addresses and never notices.</span></li>
+  </ul>
+</div>
+</div>
+
+<h2>Three simplifying assumptions</h2>
+<p>To keep this first version simple, Bilal's slides (and OSTEP §15.1) assume:</p>
+<ol class="steps">
+<li>Each address space is placed <strong>contiguously</strong> (in one piece) in physical memory.</li>
+<li>Each address space is <strong>smaller than physical memory</strong>.</li>
+<li>Every address space is <strong>exactly the same size</strong>.</li>
+</ol>
+<p class="small">We relax these later. Segmentation (next lesson) drops the "one contiguous piece" assumption.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">List the three simplifying assumptions behind the first version of base and bounds.</p><div class="a">Each address space is (1) placed <strong>contiguously</strong> in physical memory, (2) <strong>smaller than physical memory</strong>, and (3) <strong>exactly the same size</strong> as every other.</div></div>
+<div class="close">
+  <p class="q">Which list of the first base-and-bounds version's simplifying assumptions is TRUE? Each address space is …</p>
+  <ul>
+  <li data-true>… placed contiguously in physical memory, smaller than physical memory, and exactly the same size as every other. <span class="why">These are the three assumptions in OSTEP §15.1 and Dr. Bilal's slides.</span></li>
+  <li>… placed contiguously in physical memory, larger than physical memory, and exactly the same size as every other. <span class="why">Reversed. It is assumed to be <strong>smaller</strong> than (less than the size of) physical memory.</span></li>
+  <li>… placed as separate code, heap and stack pieces in physical memory, smaller than physical memory, and exactly the same size as every other. <span class="why">Splitting into pieces is <strong>segmentation</strong>, which relaxes this assumption. Here each address space is <strong>contiguous</strong> (one piece).</span></li>
+  <li>… placed contiguously in physical memory, smaller than physical memory, and sized to fit its own program. <span class="why">The third assumption is that every address space is <strong>exactly the same size</strong>.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">Every address space is 16 KB and physical memory is 64 KB. Which situation breaks one of the three simplifying assumptions?</p>
+  <ul>
+  <li data-true>A's code and heap occupy 16–28 KB and its stack 44–48 KB, with B occupying 28–44 KB. <span class="why">A's address space is split into <strong>two pieces</strong> with B in between, so it is no longer <strong>contiguous</strong>: assumption 1 is broken (this is what segmentation allows).</span></li>
+  <li>A occupies 32–48 KB, and 10 KB of that, between its heap and its stack, is unused. <span class="why">Still one contiguous 16 KB piece, smaller than memory. The unused gap is wasted (internal fragmentation) but breaks <strong>no</strong> assumption.</span></li>
+  <li>A occupies 16–32 KB and B occupies 48–64 KB, with 32–48 KB free. <span class="why">Each is one contiguous 16 KB piece, smaller than 64 KB. A free gap <strong>between</strong> processes breaks <strong>no</strong> assumption.</span></li>
+  <li>A occupies 16–32 KB, and while it is not running the OS moves it to 48–64 KB. <span class="why">Relocation just changes the base; A is still one contiguous 16 KB piece. This breaks <strong>no</strong> assumption.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>The running example: <code>x = x + 3</code></h2>
+<p>The compiler turns this one line of C into three instructions. Assume the address of <code>x</code> is already in register <code>ebx</code>:<span class="cite">Bilal slides, Ch 15</span></p>
+<pre><code>128: movl 0x0(%ebx), %eax   ; load x into eax
+132: addl $0x03, %eax       ; add 3
+135: movl %eax, 0x0(%ebx)   ; store eax back into x</code></pre>
+<p>Running it makes <strong>five</strong> memory accesses: fetch at 128, <em>load from 15 KB</em> (where <code>x</code> lives on the stack), fetch at 132 (the add touches no memory), fetch at 135, then <em>store to 15 KB</em>. From the program's point of view, its address space runs from 0 to 16 KB.</p>
+
+<figure>
+<svg viewBox="0 0 600 300" role="img" aria-label="A 16 KB address space relocated into physical memory between 32 KB and 48 KB">
+  <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="var(--ink-2)"/></marker></defs>
+  <text x="110" y="16" text-anchor="middle" class="fig-ink2" font-size="12" font-weight="600">ADDRESS SPACE (virtual)</text>
+  <rect x="50" y="30" width="120" height="30" fill="var(--s1)"/><text x="110" y="50" text-anchor="middle" fill="#fff" font-size="12">Code</text>
+  <rect x="50" y="60" width="120" height="30" fill="var(--s3)"/><text x="110" y="80" text-anchor="middle" fill="#fff" font-size="12">Heap ↓</text>
+  <rect x="50" y="90" width="120" height="150" class="fig-surface2"/><text x="110" y="168" text-anchor="middle" class="fig-ink2" font-size="12">(free)</text>
+  <rect x="50" y="240" width="120" height="30" fill="var(--s2)"/><text x="110" y="260" text-anchor="middle" fill="#fff" font-size="12">Stack ↑</text>
+  <text x="44" y="34" text-anchor="end" class="fig-ink2" font-size="11">0 KB</text>
+  <text x="44" y="274" text-anchor="end" class="fig-ink2" font-size="11">16 KB</text>
+  <text x="44" y="246" text-anchor="end" class="fig-ink2" font-size="11">15 KB: x</text>
+
+  <text x="470" y="16" text-anchor="middle" class="fig-ink2" font-size="12" font-weight="600">PHYSICAL MEMORY</text>
+  <rect x="410" y="30" width="120" height="60" rx="2" class="fig-surface"/><text x="470" y="64" text-anchor="middle" class="fig-ink" font-size="12">Operating system</text>
+  <rect x="410" y="90" width="120" height="60" class="fig-surface2"/><text x="470" y="124" text-anchor="middle" class="fig-ink2" font-size="12">(not in use)</text>
+  <rect x="410" y="150" width="120" height="60" fill="var(--s7)"/><text x="470" y="176" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">this process</text><text x="470" y="194" text-anchor="middle" fill="#fff" font-size="11">code · heap · stack</text>
+  <rect x="410" y="210" width="120" height="60" class="fig-surface2"/><text x="470" y="244" text-anchor="middle" class="fig-ink2" font-size="12">(not in use)</text>
+  <text x="536" y="34" class="fig-ink2" font-size="11">0</text>
+  <text x="536" y="94" class="fig-ink2" font-size="11">16 KB</text>
+  <text x="536" y="154" class="fig-ink2" font-size="11">32 KB ← base</text>
+  <text x="536" y="214" class="fig-ink2" font-size="11">48 KB</text>
+  <text x="536" y="274" class="fig-ink2" font-size="11">64 KB</text>
+  <path d="M172 32 C 290 40, 300 140, 406 152" fill="none" class="fig-line" stroke-width="1.5" marker-end="url(#a1)"/>
+  <path d="M172 268 C 290 260, 300 220, 406 208" fill="none" class="fig-line" stroke-width="1.5" marker-end="url(#a1)"/>
+  <text x="290" y="120" text-anchor="middle" class="fig-ink2" font-size="11">+ 32 KB</text>
+</svg>
+<figcaption>The OS puts the process at physical 32 KB, not 0. The process still believes it starts at 0. (OSTEP Fig 15.2, as in Bilal's slides.)</figcaption>
+</figure>
+
+<p><strong>The problem:</strong> how do we move the process to 32 KB <em>transparently</em>, so its addresses (128, 15 KB…) still work? An early idea was <strong>static relocation</strong>: a loader rewrites every address in the program before it runs. It gives no protection, though, and the process can't easily be moved later.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.3 aside</a> The fix is to do it in hardware, at run time.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">The three instructions of <code>x = x + 3</code> (a load, an add, a store) live at 128, 132 and 135, and x is at 15 KB. How many memory accesses does running them make, and what are they?</p><div class="a"><strong>Five</strong>: fetch at 128, <strong>load</strong> from 15 KB, fetch at 132 (the add touches no data), fetch at 135, <strong>store</strong> to 15 KB. Every one of them gets translated.</div></div>
+<div class="rc"><p class="q">What is static relocation, and what are its two problems?</p><div class="a">A <strong>loader rewrites every address</strong> in the program before it runs, so it fits where it was placed. Problems: <strong>no protection</strong> (the program can still form any address) and the process <strong>can't easily be moved</strong> later.</div></div>
+<div class="close">
+  <p class="q">The three instructions of <code>x = x + 3</code> (a load at 128, an add at 132, a store at 135; x is at 15 KB) run once. Which is TRUE?</p>
+  <ul>
+  <li data-true>They make five memory accesses (three instruction fetches, one load, one store), and every one of them is translated. <span class="why">Fetch 128, load 15 KB, fetch 132, fetch 135, store 15 KB. Instruction fetches use virtual addresses too.</span></li>
+  <li>They make three memory accesses, one per instruction, and every one of them is translated. <span class="why">Each instruction is <strong>fetched</strong> from memory, and the load and store also touch data: <strong>five</strong> accesses.</span></li>
+  <li>They make six memory accesses (three instruction fetches and one data access each), and every one of them is translated. <span class="why">The add works only on a register (eax), so it has no data access: <strong>five</strong> in total.</span></li>
+  <li>They make five memory accesses, but only the load and the store are translated; instruction fetches use physical addresses. <span class="why">The PC holds a <strong>virtual</strong> address too, so <strong>every</strong> fetch is translated as well.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Dynamic relocation: base and bounds</h2>
+<p>Each CPU gets two registers inside its <strong>memory management unit (MMU)</strong>:<span class="cite">Bilal slides, Ch 15</span></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Register</th><th>Holds</th><th>Used for</th></tr></thead>
+<tbody>
+<tr><td><strong>Base</strong></td><td>Where the process starts in physical memory</td><td><strong>Relocation</strong>: physical = virtual + base</td></tr>
+<tr><td><strong>Bounds</strong> (or <em>limit</em>)</td><td>The size of the address space</td><td><strong>Protection</strong>: 0 ≤ virtual &lt; bounds</td></tr>
+</tbody></table></div>
+<p>It is called <em>dynamic</em> relocation because it happens at run time, and the OS can change base whenever it likes.</p>
+
+<figure>
+<svg viewBox="0 0 600 200" role="img" aria-label="The MMU first checks the virtual address against bounds, then adds base. A failed check raises an exception.">
+  <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="var(--ink-2)"/></marker></defs>
+  <rect x="10" y="50" width="90" height="50" rx="8" class="fig-surface"/>
+  <text x="55" y="72" text-anchor="middle" class="fig-ink" font-size="13" font-weight="600">CPU</text>
+  <text x="55" y="90" text-anchor="middle" class="fig-ink2" font-size="11">issues VA</text>
+  <rect x="140" y="30" width="300" height="90" rx="10" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="290" y="24" text-anchor="middle" fill="var(--accent)" font-size="11" font-weight="600">MMU (hardware, every access)</text>
+  <rect x="155" y="50" width="120" height="50" rx="8" fill="var(--s4)"/>
+  <text x="215" y="71" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">VA &lt; bounds ?</text>
+  <text x="215" y="89" text-anchor="middle" fill="#fff" font-size="11">protection</text>
+  <rect x="305" y="50" width="120" height="50" rx="8" fill="var(--s1)"/>
+  <text x="365" y="71" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">VA + base</text>
+  <text x="365" y="89" text-anchor="middle" fill="#fff" font-size="11">relocation</text>
+  <rect x="480" y="50" width="110" height="50" rx="8" class="fig-surface2"/>
+  <text x="535" y="72" text-anchor="middle" class="fig-ink" font-size="13" font-weight="600">RAM</text>
+  <text x="535" y="90" text-anchor="middle" class="fig-ink2" font-size="11">at PA</text>
+  <line x1="100" y1="75" x2="152" y2="75" class="fig-line" stroke-width="1.5" marker-end="url(#a2)"/>
+  <line x1="275" y1="75" x2="302" y2="75" class="fig-line" stroke-width="1.5" marker-end="url(#a2)"/>
+  <text x="289" y="68" text-anchor="middle" fill="var(--good)" font-size="10">yes</text>
+  <line x1="425" y1="75" x2="477" y2="75" class="fig-line" stroke-width="1.5" marker-end="url(#a2)"/>
+  <line x1="215" y1="100" x2="215" y2="148" class="fig-line" stroke-width="1.5" marker-end="url(#a2)"/>
+  <text x="222" y="130" fill="var(--bad)" font-size="10">no</text>
+  <rect x="120" y="150" width="190" height="40" rx="8" fill="var(--bad-bg)" stroke="var(--bad)"/>
+  <text x="215" y="168" text-anchor="middle" fill="var(--bad)" font-size="12" font-weight="600">Exception → OS handler</text>
+  <text x="215" y="183" text-anchor="middle" fill="var(--bad)" font-size="10">usually kills the process</text>
+</svg>
+<figcaption>Check, then add. Both steps are simple circuits, so they cost almost nothing on each access.</figcaption>
+</figure>
+
+<h3>Worked example (from the slides)</h3>
+<p>Base = 32 KB = 32,768, bounds = 16 KB = 16,384.<span class="cite">Bilal slides, Ch 15</span></p>
+<ol class="steps">
+<li><strong>Fetch at 128.</strong> 128 &lt; 16,384 ✓, so PA = 128 + 32,768 = <strong>32,896</strong>.</li>
+<li><strong>Load from 15 KB.</strong> 15,360 &lt; 16,384 ✓, so PA = 15 KB + 32 KB = <strong>47 KB</strong> (48,128).</li>
+<li><strong>VA 0 KB</strong> → 32 KB. <strong>VA 16 KB</strong>: 16,384 &lt; 16,384? <strong>No</strong>, so it faults. The slides' "16 + 32 = 48 KB" is exactly the first byte <em>past</em> the process.</li>
+</ol>
+
+<h3>Another process, with faults</h3>
+<p>Base = 20 KB (20,480), bounds = 12 KB (12,288). So the valid virtual addresses are 0 to 12,287.</p>
+<div class="table-wrap"><table>
+<thead><tr><th class="r">Virtual</th><th>Check: VA &lt; 12,288?</th><th class="r">Physical = VA + 20,480</th></tr></thead>
+<tbody>
+<tr><td class="r">0</td><td>yes</td><td class="r">20,480</td></tr>
+<tr><td class="r">3,000</td><td>yes</td><td class="r">23,480</td></tr>
+<tr><td class="r">12,287</td><td>yes (the last legal byte)</td><td class="r">32,767</td></tr>
+<tr><td class="r">12,288</td><td><strong>no</strong></td><td class="r"><strong>FAULT</strong></td></tr>
+<tr><td class="r">15,000</td><td><strong>no</strong></td><td class="r"><strong>FAULT</strong></td></tr>
+</tbody></table></div>
+
+<div data-bb='{"base":"20KB","bounds":"12KB","va":"3000","mode":"size"}'></div>
+<p class="small">Try VA = 12287, then 12288. Then switch "Bounds holds…" to <em>end physical addr</em> and set bounds to 32KB. The answers don't change.</p>
+
+<div class="box exam"><span class="tag">Exam: two ways to define bounds</span>
+Bilal's slides show both (slide "Two ways of Bounds Register"), and OSTEP §15.3 does too:
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Bounds = <strong>size</strong> (main convention)</th><th>Bounds = <strong>physical end address</strong></th></tr></thead>
+<tbody>
+<tr><td>Slides' example</td><td>bounds = 16 KB</td><td>bounds = 48 KB</td></tr>
+<tr><td>Order</td><td>check VA first, then add base</td><td>add base first, then check PA</td></tr>
+<tr><td>Rule</td><td>0 ≤ VA &lt; bounds</td><td>base ≤ VA + base &lt; bounds</td></tr>
+</tbody></table></div>
+The two are <strong>logically equivalent</strong>. Bilal's formula slide uses the <em>size</em> version (0 ≤ virtual address &lt; bounds), so use that by default. But his context-switch slide stores <code>bounds : 48KB</code> in the PCB, which is the end-address version. If a question gives a bounds value that is <em>bigger than base</em> and looks like a physical address, say which convention you're using and convert (size = end − base).</div>
+
+<div class="box trap"><span class="tag">Traps</span>
+<strong>KB means 1024 here</strong>: 32 KB = 32,768, not 32,000. The check is strict: <strong>VA = bounds is already out of bounds</strong>, because the valid range is 0 … bounds − 1. And the bounds check uses the <em>virtual</em> address (in the size convention), not the physical one.</div>
+
+<p class="small">You wrote this MMU yourself in Lab 6: see "From your lab" right after this section's practice.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">A process has base = 24 KB and bounds = 8 KB (bounds = size). Translate virtual address 5,000, then virtual address 8,192.</p><div class="a">Bounds = 8 × 1024 = 8,192; base = 24 × 1024 = 24,576.<br>VA 5,000: check 5,000 &lt; 8,192 ✓. PA = 5,000 + 24,576 = <strong>29,576</strong>.<br>VA 8,192: check 8,192 &lt; 8,192? No → <strong>out-of-bounds exception</strong> (fault). The valid VAs are 0 … 8,191.</div></div>
+<div class="rc"><p class="q">This machine stores the <em>physical end address</em> in the bounds register. Base = 10,000 and bounds = 16,000. Translate virtual addresses 5,500 and 6,100.</p><div class="a">Here you add first, then check the physical address.<br>VA 5,500: 5,500 + 10,000 = 15,500 &lt; 16,000 ✓ → PA <strong>15,500</strong>.<br>VA 6,100: 6,100 + 10,000 = 16,100 ≥ 16,000 → <strong>fault</strong>. (Same as the size convention with size = 16,000 − 10,000 = 6,000.)</div></div>
+<div class="rc"><p class="q">Why is VA = bounds already illegal? And in the size convention, does the bounds check use the virtual or the physical address?</p><div class="a">The valid range is <strong>0 ≤ VA &lt; bounds</strong>, i.e. 0 … bounds − 1, so VA = bounds is the first byte <em>past</em> the process. In the size convention the check uses the <strong>virtual</strong> address, and is done <strong>before</strong> adding base.</div></div>
+<div class="close">
+  <p class="q">Base = 36 KB, bounds = 6 KB (bounds = <strong>size</strong>). Which translation of virtual address 2,500 is TRUE?</p>
+  <ul>
+  <li data-true>2,500 &lt; 6,144, so it is legal and PA = 36,864 + 2,500 = 39,364. <span class="why">Check first (VA &lt; bounds = 6 × 1024), then add base = 36 × 1024 = 36,864.</span></li>
+  <li>2,500 &lt; 6,144, so it is legal and PA = 36,864 − 2,500 = 34,364. <span class="why">You <strong>add</strong> the base: PA = VA + base = 39,364.</span></li>
+  <li>2,500 &lt; 6,144, so it is legal and PA = 6,144 + 2,500 = 8,644. <span class="why">Add the <strong>base</strong> (36,864), not the bounds. Bounds is only for the check.</span></li>
+  <li>2,500 &lt; 6,000, so it is legal and PA = 36,000 + 2,500 = 38,500. <span class="why">KB means <strong>1024</strong>: base = 36,864 and bounds = 6,144, so PA = <strong>39,364</strong>.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">Base = 36 KB, bounds = 6 KB (bounds = <strong>size</strong>). Which translation of virtual address 6,144 is TRUE?</p>
+  <ul>
+  <li data-true>6,144 is not &lt; 6,144, so the hardware raises an out-of-bounds exception. <span class="why">Valid VAs are 0 … bounds − 1 = 0 … 6,143. VA = bounds is the first byte past the process.</span></li>
+  <li>6,144 ≤ 6,144, so it is legal and PA = 36,864 + 6,144 = 43,008. <span class="why">The check is <strong>strict</strong>: VA &lt; bounds. VA = bounds is already out of bounds.</span></li>
+  <li>6,144 &lt; 43,008 (base + bounds), so it is legal and PA = 36,864 + 6,144 = 43,008. <span class="why">Here bounds is a <strong>size</strong>, so compare the VA with 6,144, not with base + bounds.</span></li>
+  <li>6,144 is not &lt; 6,144, so the hardware clamps it to the last legal byte, PA = 43,007. <span class="why">Nothing is clamped: the hardware raises an <strong>exception</strong> and the OS takes over (usually killing the process).</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">In the size convention (Dr. Bilal's formula slide), which statement about the <strong>bounds</strong> register is TRUE?</p>
+  <ul>
+  <li data-true>It holds the size of the address space, and the hardware checks 0 ≤ VA &lt; bounds before adding base. <span class="why">Bounds is for <strong>protection</strong>: check the virtual address first, then relocate with base.</span></li>
+  <li>It holds the size of the address space, and the hardware checks 0 ≤ PA &lt; bounds after adding base. <span class="why">With bounds = size, the check uses the <strong>virtual</strong> address, <strong>before</strong> adding base. (Checking the PA is the end-address convention.)</span></li>
+  <li>It holds where the process starts in physical memory, and the hardware checks 0 ≤ VA &lt; bounds before adding base. <span class="why">The physical start is the <strong>base</strong> register. Bounds holds the <strong>size</strong>.</span></li>
+  <li>It holds the size of the address space, and the hardware relocates with it: PA = VA + bounds. <span class="why">Relocation uses <strong>base</strong>: PA = VA + base. Bounds is only for the protection check.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">This machine stores the physical <strong>end address</strong> in the bounds register. Base = 50 KB, bounds = 60 KB. Which translation of virtual address 10,000 is TRUE?</p>
+  <ul>
+  <li data-true>PA = 51,200 + 10,000 = 61,200, and 61,200 &lt; 61,440, so it is legal. <span class="why">End-address convention: add base first, then check the PA against bounds (60 × 1024 = 61,440).</span></li>
+  <li>PA = 50,000 + 10,000 = 60,000, and 60,000 is not &lt; 60,000, so it faults. <span class="why">KB means <strong>1024</strong>: base = 51,200 and bounds = 61,440, so PA = 61,200 is legal.</span></li>
+  <li>PA = 51,200 + 10,000 = 61,200, and 61,200 is not &lt; 10,240, so it faults. <span class="why">10,240 is the <strong>size</strong>. In this convention the PA is compared with the <strong>end address</strong>, 61,440.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>From your lab: the MMU in C</h2>
+<p>Lab 6: <code>mmu_simple.c</code> is a software MMU with one base and one bounds per process. <code>mmu_virus.c</code> switches the bounds check off to show what an attacker gets.</p>
+<figure class="labcode" data-src="Labs/Lab 6/mmu_simple.c" data-lines="10-14" data-hl="12-13" data-caption="The two saved MMU values per process. Like the PCB fields the OS reloads into the registers on a context switch"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%206/mmu_simple.c">Labs/Lab 6/mmu_simple.c</a><span class="lc-span">lines 10–14</span></div><pre><span class="ln" data-n="10">struct process {</span><span class="ln" data-n="11">    int pid;</span><span class="ln hl" data-n="12">    int base;</span><span class="ln hl" data-n="13">    int bounds;</span><span class="ln" data-n="14">};</span></pre><figcaption>The two saved MMU values per process. Like the PCB fields the OS reloads into the registers on a context switch</figcaption></figure>
+<figure class="labcode" data-src="Labs/Lab 6/mmu_simple.c" data-lines="35-47" data-hl="40-42" data-caption="Check first (line 40, bounds = size, strict &lt;), then relocate (line 42, PA = base + VA)"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%206/mmu_simple.c">Labs/Lab 6/mmu_simple.c</a><span class="lc-span">lines 35–47</span></div><pre><span class="ln" data-n="35">int translate(int pid, int virtual_address, int *physical_address){</span><span class="ln" data-n="36">    // returns -1 if virtual address is out of bounds.</span><span class="ln" data-n="37">    // returns 0 on success &amp; stores the physical address in *physical address</span><span class="ln" data-n="38">    for (int i = 0; i &lt; MAX_PROCESSES; i++) {</span><span class="ln" data-n="39">        if (proc_list[i].pid == pid) { // find the process</span><span class="ln hl" data-n="40">            if (virtual_address &lt; 0 || virtual_address &gt;= proc_list[i].bounds)</span><span class="ln hl" data-n="41">                return ERROR_BOUNDS;   // bounds check</span><span class="ln hl" data-n="42">            *physical_address = proc_list[i].base + virtual_address; //physical = base + virtual</span><span class="ln" data-n="43">            return SUCCESS;</span><span class="ln" data-n="44">        }</span><span class="ln" data-n="45">    }</span><span class="ln" data-n="46">    return ERROR_BOUNDS;</span><span class="ln" data-n="47">}</span></pre><figcaption>Check first (line 40, bounds = size, strict &lt;), then relocate (line 42, PA = base + VA)</figcaption></figure>
+<p>This is the "check, then add" figure in the section above, line for line: line 40 is <strong>protection</strong> (0 ≤ VA &lt; bounds, the <em>size</em> convention), line 42 is <strong>relocation</strong>. A real MMU does this in hardware on every access; your C function stands in for it. Its output:</p>
+<pre><code>[OK] PID 1: Wrote 65 to VA 0 (PA 1000)
+[OK] PID 1: Wrote 66 to VA 499 (PA 1499)
+[FAULT] PID 1: VA 500 out of bounds
+[FAULT] PID 1: VA 999 out of bounds
+[OK] PID 2: Wrote 77 to VA 128 (PA 3128)
+[FAULT] PID 2: VA 499 out of bounds</code></pre>
+<figure class="labcode" data-src="Labs/Lab 6/mmu_virus.c" data-lines="48-56" data-hl="48-51,55" data-caption="With CHECK_BOUNDS 0 the preprocessor deletes lines 49 and 50, so the translation goes ahead with no bounds check, whatever the offset"><div class="lc-head"><span class="lc-tag">Your code</span><a href="../Labs/Lab%206/mmu_virus.c">Labs/Lab 6/mmu_virus.c</a><span class="lc-span">lines 48–56</span></div><pre><span class="ln hl" data-n="48">#if CHECK_BOUNDS</span><span class="ln hl" data-n="49">    if (offset &lt; 0 || offset &gt;= p-&gt;segments[seg].bounds)</span><span class="ln hl" data-n="50">        return ERROR_BOUNDS;</span><span class="ln hl" data-n="51">#endif</span><span class="ln" data-n="52"> </span><span class="ln" data-n="53">    *pa = (seg == SEG_STACK)</span><span class="ln" data-n="54">        ? p-&gt;segments[seg].base - offset</span><span class="ln hl" data-n="55">        : p-&gt;segments[seg].base + offset;</span><span class="ln" data-n="56">    return SUCCESS;</span></pre><figcaption>With CHECK_BOUNDS 0 the preprocessor deletes lines 49 and 50, so the translation goes ahead with no bounds check, whatever the offset</figcaption></figure>
+<p>As handed in (<code>CHECK_BOUNDS 0</code>, line 15) it printed <code>ALLOWED -&gt; PA=3900 byte=0x53</code> for offset 2900 (1000 + 2900, outside PID 1's 400-byte code segment) and <code>ALLOWED -&gt; PA=800</code> for offset −200 (below its base). With <code>CHECK_BOUNDS 1</code> I ran it again and both were <code>BLOCKED (bounds error)</code>. <strong>No bounds check means no isolation.</strong></p>
+<div class="labnote warn">Two comments in <code>mmu_virus.c</code> don't match the code. (1) Line 15 says "flip to 0 to see the virus succeed", but it is <em>already</em> 0, so the file as submitted has protection <strong>off</strong>; set it to 1 to see the MMU block both attacks. (2) Line 36 says the secret is in PID 2's stack, but PID 2's stack is base 3000, size 400, and none of PID 2's segments cover PA 3900. (PA 3900 is actually in PID 1's <em>own</em> stack: base 4000, size 500, so PAs 3501–4000 with the file's subtracting rule.) The demo still makes its point: a <em>code</em> offset reached a byte far outside PID 1's code segment. Also, its stack line (54) subtracts the offset; that's Lab 6's own stack convention, not the exam's (see <a href="0013-segmentation.html">Lesson 13</a>).</div>
+<div class="labnote">Exam angle: translate a VA by hand with these exact rules (check VA &lt; bounds, then add base), say which line is protection and which is relocation, and predict OK/FAULT for edge values like VA = bounds.</div>
+<div class="checkpoint">
+<div class="rc"><p class="q">Using <code>mmu_simple.c</code>'s PID 2 (base 3000, bounds 300), predict what <code>test_translation(2, 299, 9)</code> and <code>test_translation(2, 300, 9)</code> print.</p><div class="a"><code>[OK] PID 2: Wrote 9 to VA 299 (PA 3299)</code>: 299 &lt; 300, so PA = 3000 + 299.<br><code>[FAULT] PID 2: VA 300 out of bounds</code>: 300 &gt;= 300 fails line 40's check. VA = bounds is the first byte past the process.</div></div>
+<div class="rc"><p class="q">Rewrite lines 40–42 of <code>translate()</code> for a machine whose bounds register holds the <strong>physical end address</strong>. What would PID 1's bounds value be then?</p><div class="a"><code>int pa = proc_list[i].base + virtual_address;</code><br><code>if (virtual_address &lt; 0 || pa &gt;= proc_list[i].bounds) return ERROR_BOUNDS;</code><br><code>*physical_address = pa;</code><br>Add first, then check the PA. PID 1's bounds would be 1000 + 500 = <strong>1500</strong>. Same results as before.</div></div>
+<div class="rc"><p class="q">In <code>mmu_virus.c</code> with <code>CHECK_BOUNDS 1</code>, what does <code>attack("edge", 1, SEG_CODE, 399)</code> print on its last line? And with offset 400?</p><div class="a">Offset 399: 399 &lt; 400 (PID 1's code bounds), so <code>ALLOWED -&gt; PA=1399 byte=0x00</code> (nothing was ever written there).<br>Offset 400: 400 &gt;= 400, so <code>BLOCKED (bounds error)</code>.</div></div>
+<div class="close">
+  <p class="q">What does <code>test_translation(1, 500, 67)</code> print in <code>mmu_simple.c</code>, and why?</p>
+  <ul>
+  <li data-true><code>[FAULT]</code>, because line 40 tests <code>virtual_address &gt;= bounds</code> and 500 &gt;= 500. <span class="why">Bounds = size = 500, so the legal VAs are 0 … 499.</span></li>
+  <li><code>[OK]</code> with PA 1500, because line 40 tests <code>virtual_address &gt; bounds</code> and 500 &gt; 500 is false. <span class="why">The code uses <strong>&gt;=</strong>, not &gt;. VA = bounds is out of bounds.</span></li>
+  <li><code>[FAULT]</code>, because line 40 tests <code>base + virtual_address &gt;= bounds</code> and 1500 &gt;= 500. <span class="why">Line 40 compares the <strong>virtual</strong> address with bounds; base is added later, on line 42.</span></li>
+  <li><code>[OK]</code> with PA 1500, because line 40 only rejects negative virtual addresses. <span class="why">Line 40 has <strong>two</strong> tests: VA &lt; 0 <em>or</em> VA &gt;= bounds.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">In <code>translate()</code>, which pairing of lines and jobs is TRUE?</p>
+  <ul>
+  <li data-true>Line 40 does protection (the bounds check) and line 42 does relocation (adding base). <span class="why">Check first, then add: the same order as the hardware in the size convention.</span></li>
+  <li>Line 40 does relocation (adding base) and line 42 does protection (the bounds check). <span class="why">Swapped: line 40 is the <code>if</code> against bounds; line 42 adds base.</span></li>
+  <li>Line 42 does protection (the bounds check) and line 40 does nothing once bounds = size. <span class="why">Line 40 <strong>is</strong> the size-convention bounds check; line 42 has no check at all.</span></li>
+  <li>Line 40 does protection (the bounds check) and line 42 does relocation (adding bounds). <span class="why">Relocation adds the <strong>base</strong>: <code>base + virtual_address</code>.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q"><code>mmu_virus.c</code> with <code>CHECK_BOUNDS 0</code>: what does <code>attack("x", 2, SEG_HEAP, 700)</code> print? (PID 2's heap: base 2000, bounds 600.)</p>
+  <ul>
+  <li data-true><code>ALLOWED -&gt; PA=2700</code>, even though 700 is past the heap's 600 bytes. <span class="why">With the check compiled out, line 55 just computes 2000 + 700.</span></li>
+  <li><code>BLOCKED (bounds error)</code>, because 700 is past the heap's 600 bytes. <span class="why">With CHECK_BOUNDS 0, lines 49–50 are removed by the preprocessor, so nothing is blocked.</span></li>
+  <li><code>ALLOWED -&gt; PA=1300</code>, even though 700 is past the heap's 600 bytes. <span class="why">Only the <strong>stack</strong> subtracts (line 54). The heap adds: 2000 + 700.</span></li>
+  <li><code>ALLOWED -&gt; PA=2600</code>, because offsets past the bounds are clamped to it. <span class="why">Nothing clamps: the raw offset is added, giving 2700.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>What the hardware must provide</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Hardware requirement</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><strong>Privileged (kernel) mode</strong></td><td>Stops user processes from running privileged operations</td></tr>
+<tr><td><strong>Base/bounds registers</strong></td><td>One pair per CPU, in the MMU</td></tr>
+<tr><td><strong>Translate &amp; check circuitry</strong></td><td>Add base and compare to bounds on every access</td></tr>
+<tr><td><strong>Privileged instructions to update base/bounds</strong></td><td>Only the OS may set them; otherwise a program could point base anywhere and read anyone's memory</td></tr>
+<tr><td><strong>Privileged instructions to register exception handlers</strong></td><td>The OS tells the hardware what code to run on a fault</td></tr>
+<tr><td><strong>Ability to raise exceptions</strong></td><td>On an out-of-bounds access, or an attempt to change base/bounds in user mode</td></tr>
+</tbody></table></div>
+<p class="small">Source: OSTEP Fig 15.3, also on Bilal's "Hardware requirements" slides.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.4</a></p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Name at least four things the hardware must provide for base-and-bounds.</p><div class="a">(1) <strong>Privileged (kernel) mode</strong>; (2) <strong>base/bounds registers</strong> in the MMU, one pair per CPU; (3) circuitry to <strong>add base and check bounds</strong> on every access; (4) <strong>privileged instructions</strong> to update base/bounds; (5) privileged instructions to <strong>register exception handlers</strong>; (6) the ability to <strong>raise exceptions</strong> (out of bounds, or a user trying to change base/bounds).</div></div>
+<div class="rc"><p class="q">A user-mode program executes the instruction that sets the base register. What happens, and why must it?</p><div class="a">The hardware <strong>raises an exception</strong>, because it's a <strong>privileged instruction</strong>; the OS handler typically kills the process. If users could set base, they could point it at any process's memory (or the OS's) and protection would be gone.</div></div>
+<div class="close">
+  <p class="q">Why must the instructions that change the base and bounds registers be <strong>privileged</strong>?</p>
+  <ul>
+  <li data-true>A user process could otherwise point base at another process's (or the OS's) memory, so protection would be lost. <span class="why">Only the OS, in kernel mode, may set them. A user-mode attempt raises an exception.</span></li>
+  <li>A user process could otherwise point base at another process's memory, so the hardware silently ignores such attempts in user mode. <span class="why">The hardware doesn't ignore it: it <strong>raises an exception</strong>, and the OS usually terminates the process.</span></li>
+  <li>A user process could otherwise change them so often that translation slows down, so efficiency would be lost. <span class="why">The reason is <strong>protection</strong>: whoever controls base can reach any physical memory.</span></li>
+  <li>The OS has to change them on every memory access, and only kernel mode is fast enough for that. <span class="why">The <strong>hardware</strong> translates every access. The OS sets base/bounds only at a few moments (process start, context switch).</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>What the OS must do</h2>
+<p>The hardware translates on its own. The OS only steps in at a few <strong>critical junctures</strong>:<span class="cite">Bilal slides, Ch 15</span></p>
+<div class="table-wrap"><table>
+<thead><tr><th>When</th><th>OS job</th></tr></thead>
+<tbody>
+<tr><td><strong>Boot</strong></td><td>Install exception handlers in the trap table (privileged), start the timer, and initialise the process table and <strong>free list</strong></td></tr>
+<tr><td><strong>Process created</strong></td><td>Search the <strong>free list</strong> (the ranges of physical memory not in use) for a slot, mark it used, then set base/bounds</td></tr>
+<tr><td><strong>Process terminated</strong></td><td><strong>Reclaim</strong> the memory: put it back on the free list and clean up</td></tr>
+<tr><td><strong>Context switch</strong></td><td><strong>Save</strong> the old process's base and bounds into its <strong>PCB</strong> (process structure), and <strong>restore</strong> the new one's</td></tr>
+<tr><td><strong>Exception</strong></td><td>Run the handler. The usual reaction is to terminate the offending process</td></tr>
+</tbody></table></div>
+
+<figure>
+<svg viewBox="0 0 600 220" role="img" aria-label="Free list holding 16 KB and 48 KB; physical memory with OS, a free slot, process A, and another free slot">
+  <text x="90" y="18" text-anchor="middle" class="fig-ink2" font-size="12" font-weight="600">FREE LIST</text>
+  <rect x="40" y="40" width="100" height="34" rx="6" fill="var(--s3)"/><text x="90" y="62" text-anchor="middle" fill="#fff" font-size="12" font-family="var(--mono)">16 KB</text>
+  <rect x="40" y="90" width="100" height="34" rx="6" fill="var(--s3)"/><text x="90" y="112" text-anchor="middle" fill="#fff" font-size="12" font-family="var(--mono)">48 KB</text>
+  <line x1="90" y1="74" x2="90" y2="90" class="fig-line"/>
+  <rect x="300" y="20" width="160" height="44" class="fig-surface"/><text x="380" y="47" text-anchor="middle" class="fig-ink" font-size="12">Operating system</text>
+  <rect x="300" y="64" width="160" height="44" fill="none" stroke="var(--s3)" stroke-width="2" stroke-dasharray="5 3"/><text x="380" y="91" text-anchor="middle" fill="var(--s3)" font-size="12">(not in use)</text>
+  <rect x="300" y="108" width="160" height="44" fill="var(--s7)"/><text x="380" y="135" text-anchor="middle" fill="#fff" font-size="12">Process A</text>
+  <rect x="300" y="152" width="160" height="44" fill="none" stroke="var(--s3)" stroke-width="2" stroke-dasharray="5 3"/><text x="380" y="179" text-anchor="middle" fill="var(--s3)" font-size="12">(not in use)</text>
+  <text x="466" y="24" class="fig-ink2" font-size="11">0</text><text x="466" y="68" class="fig-ink2" font-size="11">16 KB</text><text x="466" y="112" class="fig-ink2" font-size="11">32 KB</text><text x="466" y="156" class="fig-ink2" font-size="11">48 KB</text><text x="466" y="200" class="fig-ink2" font-size="11">64 KB</text>
+  <path d="M140 57 C 220 57, 230 80, 296 84" fill="none" stroke="var(--s3)" stroke-width="1.5"/>
+  <path d="M140 107 C 220 120, 230 170, 296 172" fill="none" stroke="var(--s3)" stroke-width="1.5"/>
+</svg>
+<figcaption>With fixed-size slots, the free list is just a list of free slots. A new process takes one; a terminated one gives its slot back.</figcaption>
+</figure>
+
+<p>The PCB simply grows two fields. That's the <code>struct proc</code> you've already seen:</p>
+<pre><code>struct proc {
+    int   state;
+    void *program_counter;
+    struct proc *parent;
+    void *base;     // saved base register
+    void *bound;    // saved bounds register
+    ...
+};</code></pre>
+<div class="box key"><span class="tag">Bonus: moving a process</span>
+While a process is <em>not running</em>, the OS can move it. It copies the address space to a new spot and updates the <strong>saved base in the PCB</strong>. When the process resumes, the new base is loaded, and the process never notices.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.5</a></div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">The OS switches from process A to process B. Exactly what does it do with the base and bounds registers?</p><div class="a">There's only one pair per CPU, so the OS <strong>saves A's base and bounds into A's PCB</strong> (process structure) and <strong>loads B's values from B's PCB</strong> into the registers before returning into B.</div></div>
+<div class="rc"><p class="q">A process is not running and the OS wants to move it from physical 16 KB to 48 KB. What steps does it take, and does the process notice?</p><div class="a">It <strong>copies the address space</strong> to the new spot and <strong>updates the saved base in the PCB</strong> to 48 KB. When the process resumes, the new base is loaded and every address still works. The process <strong>never notices</strong>.</div></div>
+<div class="close">
+  <p class="q">The OS switches the CPU from process A to process B. What does it do with base and bounds?</p>
+  <ul>
+  <li data-true>It saves A's base and bounds into A's PCB, then loads B's saved base and bounds into the registers. <span class="why">There is only one pair of registers per CPU, so each process's values live in its PCB while it isn't running.</span></li>
+  <li>Nothing: every process has its own base and bounds registers in the MMU, so they never need changing. <span class="why">There is only <strong>one pair per CPU</strong>, so the OS must <strong>save</strong> A's and <strong>restore</strong> B's.</span></li>
+  <li>It saves A's base and bounds into A's PCB, then copies B's address space into A's old physical slot. <span class="why">No copying is needed: B's memory stays where it is, and the OS just loads <strong>B's base and bounds</strong>.</span></li>
+  <li>It saves A's base and bounds into A's PCB, then sets base = 0 and bounds = all of RAM while B runs. <span class="why">That would let B reach everyone's memory. The OS loads <strong>B's own saved</strong> base and bounds.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">A running process accesses a virtual address beyond its bounds. Which is TRUE?</p>
+  <ul>
+  <li data-true>The hardware raises an exception, switches to kernel mode and runs the OS's handler, which usually terminates the process. <span class="why">The handler was registered in the trap table at boot. The usual reaction is to kill the offending process and reclaim its memory.</span></li>
+  <li>The hardware raises an exception, switches to kernel mode and runs the OS's handler, which usually raises bounds so the access succeeds. <span class="why">Base and bounds has no "grow on demand". The usual reaction is to <strong>terminate</strong> the process.</span></li>
+  <li>The OS checks each address in software, notices the bad one and terminates the process before the access happens. <span class="why">The <strong>hardware</strong> does the check on every access. The OS only runs once the exception fires.</span></li>
+  <li>The hardware raises an exception, stays in user mode and jumps to the process's own error-handling code. <span class="why">It switches to <strong>kernel mode</strong> and runs the <strong>OS's</strong> handler from the trap table.</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">Process P is not running. The OS wants to move it from physical 16 KB to physical 64 KB. Which is TRUE?</p>
+  <ul>
+  <li data-true>The OS copies P's address space to 64 KB and updates the saved base in P's PCB to 64 KB; P never notices. <span class="why">When P next runs, the new base is loaded and every virtual address still works (OSTEP §15.5).</span></li>
+  <li>The OS copies P's address space to 64 KB and rewrites every address in P's code to add 48 KB. <span class="why">Rewriting addresses is <strong>static</strong> relocation. With base and bounds only the <strong>saved base</strong> changes.</span></li>
+  <li>The OS copies P's address space to 64 KB and updates the saved bounds in P's PCB to 64 KB. <span class="why">The size hasn't changed, so bounds stays the same. The <strong>base</strong> becomes 64 KB.</span></li>
+  <li>The OS updates the saved base in P's PCB to 64 KB; the hardware copies the data over on P's next access. <span class="why">The hardware never copies memory. The <strong>OS</strong> must copy the address space itself.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>The full timeline: LDE with dynamic relocation</h2>
+<p>Read down the table. Colour shows who is acting: <span style="color:var(--s1)">OS (kernel mode)</span>, <span style="color:var(--s2)">hardware</span>, <span style="color:var(--s3)">program (user mode)</span>.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP Fig 15.5–15.6</a></p>
+<div class="table-wrap"><table class="tl">
+<thead><tr><th>Who</th><th>What happens</th></tr></thead>
+<tbody>
+<tr class="phase"><td colspan="2">At boot</td></tr>
+<tr><td class="os">OS</td><td>Initialise trap table</td></tr>
+<tr><td class="hw">Hardware</td><td>Remember addresses of the system-call, timer, <strong>illegal memory-access</strong> and illegal-instruction handlers</td></tr>
+<tr><td class="os">OS</td><td>Start interrupt timer; initialise process table and <strong>free list</strong></td></tr>
+<tr class="phase"><td colspan="2">Start process A</td></tr>
+<tr><td class="os">OS</td><td>Allocate process-table entry, allocate memory, <strong>set base/bounds</strong>, return-from-trap into A</td></tr>
+<tr><td class="hw">Hardware</td><td>Restore A's registers, move to user mode, jump to A's PC</td></tr>
+<tr class="phase"><td colspan="2">A runs (no OS involved)</td></tr>
+<tr><td class="pr">Process A</td><td>Fetch and execute instructions</td></tr>
+<tr><td class="hw">Hardware</td><td><strong>Translate</strong> each fetch; for each load/store, <strong>check bounds</strong> and <strong>translate</strong></td></tr>
+<tr class="phase"><td colspan="2">Timer interrupt</td></tr>
+<tr><td class="hw">Hardware</td><td>Move to kernel mode, jump to timer handler</td></tr>
+<tr><td class="os">OS</td><td>Decide to stop A and run B: save A's registers <strong>including base/bounds</strong> to A's PCB, restore B's, return-from-trap into B</td></tr>
+<tr><td class="hw">Hardware</td><td>Restore B's registers, move to user mode, jump to B's PC</td></tr>
+<tr class="phase"><td colspan="2">B misbehaves</td></tr>
+<tr><td class="pr">Process B</td><td>Executes a bad load (out of bounds)</td></tr>
+<tr><td class="hw">Hardware</td><td>Detects the violation, moves to kernel mode, jumps to the trap handler</td></tr>
+<tr><td class="os">OS</td><td>Kill B: <strong>deallocate B's memory</strong> (back on the free list), remove B from the process table</td></tr>
+</tbody></table></div>
+<p>It's still limited direct execution: the OS sets things up, gets out of the way, and steps in only when necessary.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Process B executes a load whose virtual address is out of bounds. Trace what the hardware and the OS do.</p><div class="a"><strong>Hardware</strong>: detects the violation, switches to kernel mode, jumps to the OS's illegal-memory-access handler (registered in the trap table at boot).<br><strong>OS</strong>: kills B, <strong>deallocates B's memory</strong> (back onto the free list) and removes B from the process table.</div></div>
+<div class="close">
+  <p class="q">Process A is running normally under base and bounds (no system calls, timer interrupts or faults). Which is TRUE?</p>
+  <ul>
+  <li data-true>The OS is not involved: the hardware translates and checks every access itself, and the OS steps in only on a trap or interrupt. <span class="why">This is limited direct execution for memory: the OS sets things up, then gets out of the way.</span></li>
+  <li>The OS translates each address in software, and the hardware only raises an exception if bounds is exceeded. <span class="why">Translation is done by <strong>hardware</strong> on every access; doing it in software would be far too slow.</span></li>
+  <li>The hardware adds base to each address, and the OS checks each result against bounds in software. <span class="why">The bounds check is hardware too. The OS isn't involved on each access, only on <strong>exceptions</strong>.</span></li>
+  <li>The OS is not involved, but it reloads base and bounds from A's PCB after every instruction. <span class="why">Base and bounds are loaded when A is <strong>scheduled</strong> (at a context switch), not after every instruction.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>The catch: internal fragmentation</h2>
+<p>Base and bounds reserves the <strong>whole</strong> address space as one block, including the big gap between heap and stack that the program isn't using. That gap still takes real physical memory, in every process. Waste <em>inside</em> an allocated block like this is called <strong>internal fragmentation</strong>.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP §15.6</a></p>
+
+<figure>
+<svg viewBox="0 0 600 110" role="img" aria-label="A 16 KB slot: code 2 KB, heap 2 KB, 10 KB wasted gap, stack 2 KB">
+  <rect x="20" y="30" width="70" height="44" fill="var(--s1)"/><text x="55" y="57" text-anchor="middle" fill="#fff" font-size="12">Code 2K</text>
+  <rect x="90" y="30" width="70" height="44" fill="var(--s3)"/><text x="125" y="57" text-anchor="middle" fill="#fff" font-size="12">Heap 2K</text>
+  <rect x="160" y="30" width="350" height="44" fill="var(--bad-bg)" stroke="var(--bad)" stroke-dasharray="5 3"/>
+  <text x="335" y="52" text-anchor="middle" fill="var(--bad)" font-size="12" font-weight="600">reserved but unused: 10 KB wasted</text>
+  <text x="335" y="67" text-anchor="middle" fill="var(--bad)" font-size="11">(internal fragmentation)</text>
+  <rect x="510" y="30" width="70" height="44" fill="var(--s2)"/><text x="545" y="57" text-anchor="middle" fill="#fff" font-size="12">Stack 2K</text>
+  <text x="20" y="20" class="fig-ink2" font-size="11">physical slot = whole 16 KB address space</text>
+  <text x="20" y="96" class="fig-ink2" font-size="11">only 6 KB actually used · 62.5% of the slot wasted</text>
+</svg>
+<figcaption>Small programs in big fixed slots waste most of the slot. A 32-bit (4 GB) address space wouldn't even fit.</figcaption>
+</figure>
+<p>Bilal's question: <em>what if code, heap and stack each had their own base and bounds?</em> Then the gap needs no physical memory at all. That idea is <strong>segmentation</strong>, the next lesson.</p>
+
+<div class="box exam"><span class="tag">This is how it's asked</span>
+"Given base and bounds, translate these virtual addresses (or say fault)". "List the hardware support / OS responsibilities for dynamic relocation". "What must happen to base/bounds on a context switch?" "What is internal fragmentation and why does base-and-bounds suffer from it?" Short definitions and arithmetic, so get the check-then-add order automatic.</div>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Every process gets a fixed 32 KB slot. One uses 2 KB of code, 4 KB of heap and 2 KB of stack. How much is wasted, and what is that waste called?</p><div class="a">Used = 2 + 4 + 2 = 8 KB, so <strong>24 KB</strong> wasted (75% of the slot): the unused gap between heap and stack still occupies physical memory. Waste <em>inside</em> an allocated block is <strong>internal fragmentation</strong>.</div></div>
+<div class="rc"><p class="q">Why can't plain base and bounds handle a 32-bit address space well, and what idea fixes this?</p><div class="a">It needs the whole <strong>4 GB</strong> address space as one contiguous physical block, nearly all of it the unused gap. Fix: give code, heap and stack <strong>their own base and bounds</strong>, which is <strong>segmentation</strong>.</div></div>
+<div class="close">
+  <p class="q">Every process gets a fixed 16 KB slot. One process uses 3 KB of code, 2 KB of heap and 1 KB of stack. Which is TRUE?</p>
+  <ul>
+  <li data-true>10 KB of the slot is wasted, inside the allocated block; this is internal fragmentation. <span class="why">Used = 3 + 2 + 1 = 6 KB, so 16 − 6 = 10 KB of free gap still takes physical memory.</span></li>
+  <li>10 KB of the slot is wasted, inside the allocated block; this is external fragmentation. <span class="why">Waste <strong>inside</strong> an allocated block is <strong>internal</strong>. External is holes <strong>between</strong> blocks (segmentation).</span></li>
+  <li>6 KB of the slot is wasted, inside the allocated block; this is internal fragmentation. <span class="why">6 KB is what's <strong>used</strong>. The waste is 16 − 6 = <strong>10 KB</strong>.</span></li>
+  <li>Nothing is wasted, because the free gap between heap and stack takes no physical memory. <span class="why">Base and bounds reserves the <strong>whole</strong> slot, gap included. Avoiding that is what segmentation is for.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Practice</h2>
+<p>Answer from memory first, then check. Struggling a little is what makes it stick.</p>
+<p class="score" data-score></p>
+
+<div class="num" data-answer="20932">
+<p class="q">1. A process has base = 18 KB and bounds = 6 KB (bounds = size). It loads from virtual address 2,500. What physical address is accessed?</p>
+<div class="why">Check: 2,500 &lt; 6 × 1024 = 6,144 ✓. Translate: 2,500 + 18 × 1024 = 2,500 + 18,432 = <strong>20,932</strong>.</div>
+</div>
+
+<div class="mcq" data-correct="2">
+<p class="q">2. Same process (base 18 KB, bounds 6 KB). It now stores to virtual address 6,200. What happens?</p>
+<button>MMU outputs physical address 24632.</button>
+<button>MMU outputs physical address 12232.</button>
+<button>MMU raises an out-of-bounds exception.</button>
+<button>OS quietly enlarges the bounds.</button>
+<div class="why">6,200 ≥ 6,144 (= 6 KB), so the check fails <em>before</em> any translation. The hardware raises an exception and the OS's handler runs, and will most likely kill the process. (24,632 is what you'd get if you forgot to check.)</div>
+</div>
+
+<div class="num" data-answer="3999">
+<p class="q">3. A machine uses the <em>other</em> convention: bounds holds the physical address of the end of the address space. Base = 40,000 and bounds = 44,000. What is the largest legal virtual address?</p>
+<div class="why">Size = end − base = 44,000 − 40,000 = 4,000 bytes, so the legal VAs are 0 … <strong>3,999</strong>. Check: 3,999 + 40,000 = 43,999 &lt; 44,000 ✓, but 4,000 + 40,000 = 44,000 fails.</div>
+</div>
+
+<div class="mcq" data-correct="1">
+<p class="q">4. Process A is descheduled so B can run. Where are A's base and bounds values kept until A runs again?</p>
+<button>In the free list</button>
+<button>In process A's PCB</button>
+<button>In the trap table</button>
+<button>In the MMU permanently</button>
+<div class="why">There's only one base/bounds pair per CPU. On a context switch the OS <strong>saves</strong> A's values into A's process structure (PCB) and <strong>restores</strong> B's from B's PCB.</div>
+</div>
+
+<div class="mcq" data-correct="3">
+<p class="q">5. Why must the instructions that change the base and bounds registers be privileged?</p>
+<button>Otherwise translation would become much slower.</button>
+<button>Otherwise the timer would stop firing.</button>
+<button>Otherwise the compiler must rewrite addresses.</button>
+<button>Otherwise programs could reach any memory.</button>
+<div class="why">If user code could set base and bounds, a process could point base at another process's memory (or at the OS) and read or overwrite it. Protection would be gone. In user mode, trying to change them raises an exception.</div>
+</div>
+
+<div class="num" data-answer="10|10KB|10 KB|10240">
+<p class="q">6. Each process gets a fixed 16 KB slot. A process uses 1 KB of code, 3 KB of heap and 2 KB of stack. How many KB of its slot are lost to internal fragmentation?</p>
+<div class="why">Used = 1 + 3 + 2 = 6 KB. Wasted = 16 − 6 = <strong>10 KB</strong>. That's the free gap between heap and stack, reserved in physical memory but never used.</div>
+</div>
+
+<div class="mcq" data-correct="2">
+<p class="q">7. While process A runs normally, who translates each of its virtual addresses into physical ones?</p>
+<button>The OS, on every access</button>
+<button>The compiler, before it runs</button>
+<button>The hardware, with no OS</button>
+<button>The loader, at program start</button>
+<div class="why">Translation is done by the <strong>MMU hardware</strong> on every access, with no OS involvement. The OS only acts at boot, at process creation and termination, on context switches, and on exceptions. (A loader rewriting addresses would be <em>static</em> relocation.)</div>
+</div>
+
+<details class="recall"><summary>8. Name the OS's responsibilities for base-and-bounds, and say when each one happens.</summary>
+<div><strong>Memory management</strong>: on process creation, find a free slot using the <em>free list</em>; on termination, reclaim the memory onto the free list. <strong>Base/bounds management</strong>: on every context switch, save the old process's base/bounds into its PCB and restore the new one's. <strong>Exception handling</strong>: install handlers at boot; when an out-of-bounds exception occurs, run the handler (usually terminate the process).</div></details>
+
+<!-- ======================================================== -->
+<div class="source"><span class="tag">Primary source: read this next</span>
+<p style="margin:.3rem 0 0"><a href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-mechanism.pdf">OSTEP Chapter 15: Mechanism: Address Translation</a> (≈14 pages, pp. 151–164 of your <code>OS - Book.pdf</code>). Read §15.3 (dynamic relocation, with the bounds aside) and study Figures 15.3–15.6. Those tables are exam material.</p></div>
+
+<p class="ask">💬 Something unclear? Ask me (your Claude teacher) anything, e.g. <em>"give me five more base-and-bounds translations with one fault"</em> or <em>"walk me through the LDE timeline again"</em>.</p>
+
+<nav class="nextprev"><a href="0011-memory-api.html">← Lesson 11 · Memory API</a><a href="0013-segmentation.html">Lesson 13 · Segmentation →</a></nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OS Midterm Course</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/recall.js" defer></script>
+<style>
+  .plan { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .8rem; margin: 1rem 0 2rem; }
+  .plan > div { border: 1px solid var(--rule); border-radius: 10px; padding: .8rem 1rem; font-family: var(--sans); font-size: .85rem; }
+  .plan b { display: block; font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin-bottom: .3rem; }
+  .plan ul { margin: .3rem 0 0; padding-left: 1.1rem; } .plan li { margin: .15rem 0; }
+  .part { font-family: var(--sans); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 1.6rem 0 .4rem; }
+  label.done { font-family: var(--sans); font-size: .75rem; color: var(--muted); display: flex; align-items: center; gap: .3rem; justify-content: flex-end; }
+</style>
+</head>
+<body>
+<main>
+<p class="kicker">CS-232 · Dr. Bilal Wajid · Midterm prep</p>
+<h1>Operating Systems, made easy</h1>
+<p class="lede">Thirteen short, visual lessons covering exactly the midterm syllabus (OSTEP Ch 2, 4–10, 13–16). Each one takes about 15–20 minutes and ends with practice.</p>
+
+<div class="box exam"><span class="tag">The exam</span>
+<strong>Tuesday 6 October</strong>, in your normal class slot and room. It's worth <strong>20%</strong>, and Dr. Bilal and Dr. Zafar set the paper together. Questions look like the weekly quizzes: trace a schedule, compute averages, trace <code>fork()</code>, explain a memory bug, translate an address.</div>
+
+<div class="box key"><span class="tag">How to study with this site: active recall</span>
+Don't just read. After each section there's a <strong>recall check</strong>: type your answer from memory, reveal the model answer, then mark yourself <em>Got it / Shaky / Missed</em>. Each lesson opens with a short <strong>warm-up</strong> on earlier lessons. Recall checks also include <strong>spot the true one</strong> questions: four near-identical options, each wrong one hiding a classic slip, and you get one try. All of them are collected on the <a href="drill.html">drill page</a>. Anything you miss goes to <a href="review.html">My weak spots</a>.</div>
+
+<h2>3-day plan</h2>
+<div class="plan">
+  <div><b>Sat 3 Oct · CPU basics</b><ul><li>Lessons 1–5</li><li>Use the simulator in Lesson 5 until the averages feel automatic</li></ul></div>
+  <div><b>Sun 4 Oct · Schedulers</b><ul><li>First, redo the practice questions in Lessons 3 &amp; 5 <em>without</em> looking (spacing)</li><li>Lessons 6–9</li></ul></div>
+  <div><b>Mon 5 Oct · Memory</b><ul><li>Redo the practice in Lessons 7 &amp; 8</li><li>Lessons 10–13</li><li>Evening: past quizzes as a timed mock test</li></ul></div>
+  <div><b>Tue 6 Oct · Exam day</b><ul><li>Read the cheat sheet, then a shuffled run of the <a href="drill.html">drill</a></li><li>Clear the <a href="review.html">weak-spots</a> deck</li></ul></div>
+</div>
+
+<h2>Lessons</h2>
+<p class="part">Part 1 · Processes &amp; the CPU</p>
+<ul class="cards">
+  <li><a href="lessons/0001-the-big-picture.html"><span class="n">01</span><span class="t">What an OS actually does<span class="d">Virtualization, concurrency, persistence; the counter++ race</span></span><span class="ch">Ch 2</span></a></li>
+  <li><a href="lessons/0002-the-process.html"><span class="n">02</span><span class="t">The process<span class="d">Machine state, PC &amp; SP, process states, struct proc</span></span><span class="ch">Ch 4</span></a></li>
+  <li><a href="lessons/0003-fork-exec-wait.html"><span class="n">03</span><span class="t">fork(), exec(), wait()<span class="d">Tracing fork trees, PIDs, zombies; the C you must write</span></span><span class="ch">Ch 5</span></a></li>
+  <li><a href="lessons/0004-limited-direct-execution.html"><span class="n">04</span><span class="t">Limited direct execution<span class="d">User/kernel mode, traps, timer interrupt, context switch</span></span><span class="ch">Ch 6</span></a></li>
+</ul>
+<p class="part">Part 2 · Scheduling</p>
+<ul class="cards">
+  <li><a href="lessons/0005-scheduling-basics.html"><span class="n">05</span><span class="t">FIFO, SJF, STCF, Round Robin<span class="d">Turnaround &amp; response time, plus an interactive simulator</span></span><span class="ch">Ch 7</span></a></li>
+  <li><a href="lessons/0006-mlfq.html"><span class="n">06</span><span class="t">Multi-level feedback queue<span class="d">The 5 rules, and why each one exists</span></span><span class="ch">Ch 8</span></a></li>
+  <li><a href="lessons/0007-lottery-and-stride.html"><span class="n">07</span><span class="t">Lottery &amp; stride<span class="d">Tickets, winning ranges, stride/pass tables</span></span><span class="ch">Ch 9</span></a></li>
+  <li><a href="lessons/0008-cfs.html"><span class="n">08</span><span class="t">Linux CFS<span class="d">vruntime, weights, sched_latency, red-black tree</span></span><span class="ch">Ch 9</span></a></li>
+  <li><a href="lessons/0009-multiprocessor-scheduling.html"><span class="n">09</span><span class="t">Multiprocessor scheduling<span class="d">Cache affinity, SQMS vs MQMS, load balancing</span></span><span class="ch">Ch 10</span></a></li>
+</ul>
+<p class="part">Part 3 · Memory</p>
+<ul class="cards">
+  <li><a href="lessons/0010-address-spaces.html"><span class="n">10</span><span class="t">Address spaces<span class="d">Code, heap, stack; p vs &amp;p vs *p</span></span><span class="ch">Ch 13</span></a></li>
+  <li><a href="lessons/0011-memory-api.html"><span class="n">11</span><span class="t">malloc, free &amp; their bugs<span class="d">Dangling pointers, double free, leaks, realloc</span></span><span class="ch">Ch 14</span></a></li>
+  <li><a href="lessons/0012-base-and-bounds.html"><span class="n">12</span><span class="t">Base &amp; bounds<span class="d">Hardware address translation, with an interactive translator</span></span><span class="ch">Ch 15</span></a></li>
+  <li><a href="lessons/0013-segmentation.html"><span class="n">13</span><span class="t">Segmentation<span class="d">Selector bits, stack offsets, SEG_MASK &amp; SEG_SHIFT</span></span><span class="ch">Ch 16</span></a></li>
+</ul>
+
+<h2>Reference</h2>
+<ul class="cards">
+  <li><a href="review.html"><span class="n">★</span><span class="t">My weak spots<span class="d">Flashcards of everything you marked Shaky or Missed, or got wrong first time</span></span><span class="ch"><span data-weak-count>0</span> to review</span></a></li>
+  <li><a href="drill.html"><span class="n">✓?</span><span class="t">Spot the true one<span class="d">Every trick question from all 13 lessons in one drill, by lesson or shuffled</span></span><span class="ch">drill</span></a></li>
+  <li><a href="reference/cheatsheet.html"><span class="n">≡</span><span class="t">Exam cheat sheet<span class="d">Every formula, recipe and rule list on one printable page</span></span><span class="ch">print me</span></a></li>
+  <li><a href="reference/lab-map.html"><span class="n">{ }</span><span class="t">Lab code map<span class="d">Each topic → the exact file and lines in your own lab code</span></span><span class="ch"></span></a></li>
+  <li><a href="reference/glossary.html"><span class="n">Aa</span><span class="t">Glossary<span class="d">One tight definition per term, used consistently in every lesson</span></span><span class="ch"></span></a></li>
+</ul>
+
+<h2>After the lessons</h2>
+<p>Do the past quizzes in <code>Quizzes &amp; their Solutions/</code> as a mock exam: all of them, closed-book, then check the solutions. The lessons deliberately use <em>different</em> numbers from the quizzes, so the quizzes still work as a fair test.</p>
+<p class="ask">💬 Stuck anywhere? Ask me. I'm your teacher for this. Try <em>"quiz me on lesson 6"</em>, <em>"give me 3 more segmentation problems"</em>, or <em>"I don't get why the stack offset is negative"</em>.</p>
+<p class="small">Sources: <a href="https://pages.cs.wisc.edu/~remzi/OSTEP/">OSTEP</a> (Arpaci-Dusseau), Dr. Bilal Wajid's slides, Dr. Zafar Iqbal's slides, and the past quizzes. See <code>RESOURCES.md</code>.</p>
+</main>
+</body>
+</html>

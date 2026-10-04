@@ -301,6 +301,13 @@ table.labmap tr.lm-lesson th { text-align: left; padding-top: 1.2rem; font-famil
 .inshort { font-family: var(--sans); font-size: .92rem; border-top: 1px dashed var(--rule); padding-top: .6rem; margin-top: 1.2rem; }
 .crux strong, .inshort strong { color: var(--accent); }
 
+/* ---------- reading mode (toggle in recall.js) ---------- */
+.rm-toggle { font-family: var(--sans); font-size: .78rem; margin-left: auto; padding: .3rem .7rem; border-radius: 999px;
+  border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; }
+.reading-mode .rm-toggle { background: var(--accent); color: var(--bg); }
+.reading-mode .checkpoint, .reading-mode .warmup, .reading-mode .mcq, .reading-mode .num,
+.reading-mode details.recall, .reading-mode .rm-practice { display: none !important; }
+
 /* ---------- print ---------- */
 @media print {
   :root { --bg: #fff; --surface: #f6f6f4; }

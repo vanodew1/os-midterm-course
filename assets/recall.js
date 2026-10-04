@@ -257,6 +257,31 @@
     });
   }
 
+  /* ---------- reading mode: hide every question, keep the teaching ---------- */
+  const RM_KEY = 'osreading:v1';
+  function readingMode() {
+    const crumbs = document.querySelector('.crumbs');
+    if (!crumbs || !document.querySelector('.checkpoint, .mcq, .num')) return;
+    // tag the Practice section (its h2 and everything up to the next h2)
+    document.querySelectorAll('h2').forEach(h => {
+      if (!/^\s*Practice\b/i.test(h.textContent)) return;
+      for (let el = h; el && (el === h || el.tagName !== 'H2'); el = el.nextElementSibling) el.classList.add('rm-practice');
+    });
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'rm-toggle';
+    const set = on => {
+      document.body.classList.toggle('reading-mode', on);
+      btn.textContent = on ? 'Show questions' : 'Reading mode: hide questions';
+      btn.setAttribute('aria-pressed', on);
+      try { localStorage.setItem(RM_KEY, on ? '1' : '0'); } catch (e) {}
+    };
+    let on = false;
+    try { on = localStorage.getItem(RM_KEY) === '1'; } catch (e) {}
+    btn.addEventListener('click', () => set(!document.body.classList.contains('reading-mode')));
+    crumbs.appendChild(btn);
+    set(on);
+  }
+
   /* ---------- boot ---------- */
   function boot() {
     document.querySelectorAll('details.recall').forEach(upgradeDetails);
@@ -265,6 +290,7 @@
     document.querySelectorAll('.rc').forEach(b => initCard(b));
     document.querySelectorAll('.close').forEach(initClose);
     addNavLink();
+    readingMode();
     hookPractice();
     updateCounts();
   }

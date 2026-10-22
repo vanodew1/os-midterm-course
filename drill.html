@@ -22,7 +22,7 @@
 </head>
 <body>
 <main>
-<nav class="crumbs"><a href="index.html">← Course map</a><span>Drill · 242 questions</span></nav>
+<nav class="crumbs"><a href="index.html">← Course map</a><span>Drill · 254 questions</span></nav>
 
 <p class="kicker">Active recall</p>
 <h1>Spot the true one</h1>
@@ -30,7 +30,7 @@
 
 <div class="drill-ctl">
   <select id="lesson" aria-label="lesson">
-    <option value="all">All lessons (242)</option>
+    <option value="all">All lessons (254)</option>
 <option value="1">Lesson 1 · What an OS actually does (13)</option>
 <option value="2">Lesson 2 · The process (22)</option>
 <option value="3">Lesson 3 · fork, exec and wait (23)</option>
@@ -44,6 +44,8 @@
 <option value="11">Lesson 11 · malloc, free, and how they go wrong (22)</option>
 <option value="12">Lesson 12 · Base and bounds: moving a program without it noticing (18)</option>
 <option value="13">Lesson 13 · Segmentation: a base and bounds for every piece (17)</option>
+<option value="14">Lesson 14 · Free-space management: how malloc finds you a chunk (6)</option>
+<option value="15">Lesson 15 · Paging: chop memory into same-size pieces (6)</option>
   </select>
   <label><input type="checkbox" id="mix"> Shuffle across lessons</label>
   <label><input type="checkbox" id="todo"> Hide ones I got right before</label>
@@ -2292,6 +2294,122 @@ b[0] = 9;</code></pre></div>
   <li>No hole can hold it as memory stands: 18 KB is free in total, but no single hole is 10 KB. This is internal fragmentation. <span class="why">Waste <strong>between</strong> allocated blocks is <strong>external</strong>. Internal is waste <em>inside</em> a block (base and bounds).</span></li>
   <li>It can be placed as memory stands: 18 KB is free in total, and the segment is split across the holes. <span class="why">A segment is one <strong>contiguous</strong> range with a single base, so it can't be split.</span></li>
   <li>No hole can hold it as memory stands: 18 KB is free in total, but no single hole is 10 KB. Using best-fit would remove this problem completely. <span class="why">Free-list algorithms only <strong>minimise</strong> external fragmentation. Only <strong>compaction</strong> merges the holes, at a high cost.</span></li>
+  </ul>
+</div>
+</section>
+
+<section class="drill-group" data-lesson="14">
+<h2>Lesson 14 · Free-space management: how malloc finds you a chunk <a class="small" href="lessons/0014-free-space-management.html">open lesson ↗</a></h2>
+<div class="close" data-page="lessons/0014-free-space-management.html" data-title="Lesson 14 · Free-space management: how malloc finds you a chunk" data-lesson="14">
+  <p class="q">Which statement is TRUE?</p>
+  <ul>
+  <li data-true>Internal fragmentation is unused space inside a chunk the allocator handed out. <span class="why">Right: "the waste occurs inside the allocated unit" (§17.1).</span></li>
+  <li>External fragmentation is unused space inside a chunk the allocator handed out. <span class="why">That's <strong>internal</strong>. External fragmentation is the holes <em>between</em> chunks.</span></li>
+  <li>Internal fragmentation is unused space between the chunks the allocator handed out. <span class="why">Swapped. Holes <em>between</em> chunks = <strong>external</strong>.</span></li>
+  <li>A C malloc library fixes fragmentation by compacting the chunks it handed out. <span class="why">It <strong>can't</strong> move handed-out memory: the program holds pointers to it. Only the OS can compact (segments).</span></li>
+  </ul>
+</div>
+<div class="close" data-page="lessons/0014-free-space-management.html" data-title="Lesson 14 · Free-space management: how malloc finds you a chunk" data-lesson="14">
+  <p class="q">A heap is 0–40. Free: 0–10 and 20–30. Used: 10–20 and 30–40. The program frees 10–20. With coalescing, which free list is TRUE?</p>
+  <ul>
+  <li data-true>One node: addr 0, len 30. <span class="why">10–20 sits between two free chunks, so all three merge into 0–30. 30–40 is still used.</span></li>
+  <li>One node: addr 0, len 40. <span class="why">30–40 is still <strong>used</strong>, so the merge stops at 30.</span></li>
+  <li>Two nodes: addr 0, len 20 and addr 20, len 10. <span class="why">20–30 is free and right next to 10–20, so it merges too. Coalescing merges with <em>both</em> neighbours.</span></li>
+  <li>Three nodes: addr 0, addr 10, addr 20, each len 10. <span class="why">That's the list <em>without</em> coalescing.</span></li>
+  </ul>
+</div>
+<div class="close" data-page="lessons/0014-free-space-management.html" data-title="Lesson 14 · Free-space management: how malloc finds you a chunk" data-lesson="14">
+  <p class="q">Headers are 8 bytes. A program calls <code>malloc(64)</code>. Which is TRUE?</p>
+  <ul>
+  <li data-true>The library searches for a 72-byte chunk and stores the size just before ptr. <span class="why">N + header = 64 + 8 = 72, and the header sits right before the returned pointer.</span></li>
+  <li>The library searches for a 64-byte chunk and stores the size just before ptr. <span class="why">It needs room for the header too: <strong>72</strong>.</span></li>
+  <li>The library searches for a 72-byte chunk and stores the size just after ptr. <span class="why">The header is <strong>before</strong> ptr; free uses <code>(header_t*)ptr − 1</code>.</span></li>
+  <li>The library searches for a 64-byte chunk and free() gets the size from its argument. <span class="why"><code>free(void *ptr)</code> takes <strong>no size</strong>; that's why the header exists.</span></li>
+  </ul>
+</div>
+<div class="close" data-page="lessons/0014-free-space-management.html" data-title="Lesson 14 · Free-space management: how malloc finds you a chunk" data-lesson="14">
+  <p class="q">Free list: 18 → 6 → 11 → 30. Request 9. Which is TRUE?</p>
+  <ul>
+  <li data-true>Best fit picks 11, leaving 18 → 6 → 2 → 30. <span class="why">The chunks that fit are 18, 11 and 30. The smallest is 11; 11 − 9 = 2.</span></li>
+  <li>Best fit picks 6, leaving 18 → 0 → 11 → 30. <span class="why">6 &lt; 9 doesn't fit. Best fit chooses the smallest chunk <strong>that fits</strong>.</span></li>
+  <li>Best fit picks 18, leaving 9 → 6 → 11 → 30. <span class="why">18 is what <strong>first fit</strong> picks. Best fit scans the whole list and picks 11.</span></li>
+  <li>Best fit picks 30, leaving 18 → 6 → 11 → 21. <span class="why">That's <strong>worst fit</strong> (largest chunk).</span></li>
+  </ul>
+</div>
+<div class="close" data-page="lessons/0014-free-space-management.html" data-title="Lesson 14 · Free-space management: how malloc finds you a chunk" data-lesson="14">
+  <p class="q">Which statement about the policies is TRUE?</p>
+  <ul>
+  <li data-true>First fit is fast because it stops searching at the first chunk that fits. <span class="why">Right: no exhaustive search (§17.3).</span></li>
+  <li>Best fit is fast because it stops searching at the first chunk that fits. <span class="why">Best fit must scan the <strong>whole</strong> list to be sure it has the smallest.</span></li>
+  <li>Worst fit is the best policy because it leaves large leftover chunks. <span class="why">That's the idea, but the book says studies show it <strong>performs badly</strong>: more fragmentation and high overhead.</span></li>
+  <li>Next fit always starts its search at the head of the free list. <span class="why">Next fit starts where the <strong>last</strong> search stopped; that's the whole point.</span></li>
+  </ul>
+</div>
+<div class="close" data-page="lessons/0014-free-space-management.html" data-title="Lesson 14 · Free-space management: how malloc finds you a chunk" data-lesson="14">
+  <p class="q">Which statement about the buddy allocator is TRUE?</p>
+  <ul>
+  <li data-true>It suffers internal fragmentation because it only hands out power-of-two blocks. <span class="why">Right (§17.4): a 7 KB request gets an 8 KB block.</span></li>
+  <li>It suffers external fragmentation because it only hands out power-of-two blocks. <span class="why">The waste is <strong>inside</strong> the handed-out block, so it's <strong>internal</strong> fragmentation.</span></li>
+  <li>It suffers internal fragmentation because finding a block's buddy needs a full list search. <span class="why">Finding the buddy is cheap: the two addresses differ by <strong>one bit</strong>.</span></li>
+  <li>It avoids all fragmentation because buddies are always coalesced when freed. <span class="why">Coalescing helps, but rounding up to powers of two still wastes space <em>inside</em> blocks.</span></li>
+  </ul>
+</div>
+</section>
+
+<section class="drill-group" data-lesson="15">
+<h2>Lesson 15 · Paging: chop memory into same-size pieces <a class="small" href="lessons/0015-paging.html">open lesson ↗</a></h2>
+<div class="close" data-page="lessons/0015-paging.html" data-title="Lesson 15 · Paging: chop memory into same-size pieces" data-lesson="15">
+  <p class="q">Which statement is TRUE?</p>
+  <ul>
+  <li data-true>Each process has its own page table, mapping its virtual pages to physical frames. <span class="why">Right: "this page table is a per-process data structure" (§18.1).</span></li>
+  <li>All processes share one page table, mapping virtual pages to physical frames. <span class="why">Each process maps the same VPNs to <strong>different</strong> frames, so each needs its <strong>own</strong> table.</span></li>
+  <li>Each process has its own page table, mapping physical frames to virtual pages. <span class="why">Backwards: it's indexed by <strong>VPN</strong> and gives a <strong>PFN</strong>.</span></li>
+  <li>Paging causes external fragmentation because pages can go in any free frame. <span class="why">Fixed-size units mean <strong>no</strong> external fragmentation (§18.6).</span></li>
+  </ul>
+</div>
+<div class="close" data-page="lessons/0015-paging.html" data-title="Lesson 15 · Paging: chop memory into same-size pieces" data-lesson="15">
+  <p class="q">64-byte address space, 16-byte pages, page table VP0→3, VP1→7, VP2→5, VP3→2. Which translation of VA 50 is TRUE?</p>
+  <ul>
+  <li data-true>VPN 3, offset 2, so PA = 2 × 16 + 2 = 34. <span class="why">50 = <code>11 0010</code>: VPN 3 → PFN 2; keep offset 2.</span></li>
+  <li>VPN 3, offset 2, so PA = 3 × 16 + 2 = 50. <span class="why">You used the <strong>VPN</strong> instead of the PFN, which just gives back the VA. VP3 → PFN <strong>2</strong>.</span></li>
+  <li>VPN 2, offset 2, so PA = 5 × 16 + 2 = 82. <span class="why">50 ÷ 16 = 3 remainder 2, so the VPN is <strong>3</strong>, not 2.</span></li>
+  <li>VPN 3, offset 2, so PA = 2 × 16 + 50 = 82. <span class="why">Add the <strong>offset</strong> (2), not the whole VA.</span></li>
+  </ul>
+</div>
+<div class="close" data-page="lessons/0015-paging.html" data-title="Lesson 15 · Paging: chop memory into same-size pieces" data-lesson="15">
+  <p class="q">A 6-bit virtual address with 16-byte pages. Which set of constants is TRUE?</p>
+  <ul>
+  <li data-true>VPN_MASK = 0x30, SHIFT = 4, OFFSET_MASK = 0x0F. <span class="why">4 offset bits (16 = 2<sup>4</sup>); the VPN is the top 2 bits: <code>110000</code> = 0x30.</span></li>
+  <li>VPN_MASK = 0x0F, SHIFT = 4, OFFSET_MASK = 0x30. <span class="why">Swapped: the VPN is the <strong>high</strong> bits (0x30), the offset the low bits (0x0F).</span></li>
+  <li>VPN_MASK = 0x30, SHIFT = 2, OFFSET_MASK = 0x0F. <span class="why">SHIFT = number of <strong>offset</strong> bits = 4, not the number of VPN bits.</span></li>
+  <li>VPN_MASK = 0x3C, SHIFT = 4, OFFSET_MASK = 0x03. <span class="why">That splits off only 2 offset bits, which would mean 4-byte pages.</span></li>
+  </ul>
+</div>
+<div class="close" data-page="lessons/0015-paging.html" data-title="Lesson 15 · Paging: chop memory into same-size pieces" data-lesson="15">
+  <p class="q">32-bit address space, 4 KB pages, 4-byte PTEs. Which is TRUE?</p>
+  <ul>
+  <li data-true>Each process's linear page table is 4 MB and is stored in memory. <span class="why">2<sup>20</sup> × 4 B = 4 MB; that's too big for the MMU, so it lives in memory (§18.2).</span></li>
+  <li>Each process's linear page table is 4 KB and is stored in memory. <span class="why">4 KB is the <strong>page</strong> size. The table has 2<sup>20</sup> entries × 4 B = <strong>4 MB</strong>.</span></li>
+  <li>Each process's linear page table is 4 MB and is stored in the MMU. <span class="why">Too big for special on-chip hardware; it's kept <strong>in memory</strong>.</span></li>
+  <li>All processes together share one 4 MB linear page table in memory. <span class="why">It's <strong>per process</strong>: 100 processes = 400 MB.</span></li>
+  </ul>
+</div>
+<div class="close" data-page="lessons/0015-paging.html" data-title="Lesson 15 · Paging: chop memory into same-size pieces" data-lesson="15">
+  <p class="q">Which statement is TRUE?</p>
+  <ul>
+  <li data-true>The dirty bit says whether the page was modified since it was brought into memory. <span class="why">Right (§18.3).</span></li>
+  <li>The present bit says whether the page was modified since it was brought into memory. <span class="why">That's the <strong>dirty</strong> bit. Present = in memory vs on disk.</span></li>
+  <li>The reference bit says whether the page was modified since it was brought into memory. <span class="why">Reference = <strong>accessed</strong> at all (read or write), not modified.</span></li>
+  <li>The valid bit says whether the page was modified since it was brought into memory. <span class="why">Valid = is this translation <strong>in use</strong>. Invalid pages (like the heap–stack gap) trap.</span></li>
+  </ul>
+</div>
+<div class="close" data-page="lessons/0015-paging.html" data-title="Lesson 15 · Paging: chop memory into same-size pieces" data-lesson="15">
+  <p class="q">A loop has 5 instructions; 2 of them load from memory. With a linear page table and no other help, which is TRUE per iteration?</p>
+  <ul>
+  <li data-true>There are 14 memory accesses: 7 real ones and 7 page-table lookups. <span class="why">5 fetches + 2 loads = 7 real accesses, and each needs one PTE read first: 7 + 7 = 14.</span></li>
+  <li>There are 12 memory accesses: 7 real ones and 5 page-table lookups. <span class="why">The data loads need translating too, not just the fetches: <strong>7</strong> lookups.</span></li>
+  <li>There are 7 memory accesses: the page-table lookups are done in the MMU. <span class="why">The table is <strong>in memory</strong>, so every lookup is a memory access.</span></li>
+  <li>There are 10 memory accesses: 5 real ones and 5 page-table lookups. <span class="why">That ignores the 2 explicit loads. 10 is the book's loop, which had 4 instructions and 1 store.</span></li>
   </ul>
 </div>
 </section>

@@ -226,13 +226,59 @@
     render();
   }
 
-  W.OSMem = { parse, bb, seg, bin, fmt, bbWidget, segWidget };
+  // D) Paging (linear page table, OSTEP Ch 18): VPN = top bits, offset kept as is.
+  //    <div data-page='{"vaBits":6,"offBits":4,"va":"21","table":[3,7,5,2]}'></div>
+  //    table[vpn] = PFN, or null for an invalid page (any access faults).
+  function page(cfg, vaRaw) {
+    const vaBits = cfg.vaBits, offBits = cfg.offBits, va = parse(vaRaw), steps = [];
+    if (isNaN(va) || va < 0 || va >= 2 ** vaBits) return { ok: false, va, steps, fault: `VA must be 0 … ${2 ** vaBits - 1}` };
+    const vpn = va >> offBits, offset = va & (2 ** offBits - 1);
+    steps.push(`VPN    = (VA & VPN_MASK) >> SHIFT = ${vpn}      (SHIFT = ${offBits})`);
+    steps.push(`offset = VA & OFFSET_MASK          = ${offset}`);
+    const pfn = cfg.table[vpn];
+    if (pfn === null || pfn === undefined) { steps.push(`PTE[${vpn}] is invalid`); return { ok: false, va, vpn, offset, steps, fault: `page ${vpn} is invalid → trap to the OS (segmentation fault)` }; }
+    const pa = pfn * 2 ** offBits + offset;
+    steps.push(`PTE[${vpn}] → PFN ${pfn}`);
+    steps.push(`PA = (PFN << SHIFT) | offset = ${pfn} × ${2 ** offBits} + ${offset} = ${pa}`);
+    return { ok: true, va, vpn, offset, pfn, pa, steps };
+  }
+
+  function pageWidget(el, cfg) {
+    el.classList.add('xl');
+    const { vaBits, offBits } = cfg, vpnBits = vaBits - offBits;
+    const rows = cfg.table.map((p, i) => `<tr data-i="${i}"><td>${i}</td><td><code>${bin(i, vpnBits)}</code></td><td>${p === null ? '— (invalid)' : p}</td></tr>`).join('');
+    el.innerHTML = `<p class="xl-title">Try it · paging MMU (${vaBits}-bit VA = ${vpnBits} VPN bits + ${offBits} offset bits; page = ${2 ** offBits} bytes)</p>
+      <div class="controls"><label>Virtual address<input data-k="va" value="${esc(cfg.va ?? '0')}"></label></div>
+      <div class="bits" aria-label="address bits"></div><div class="bitlegend"></div>
+      <div class="table-wrap"><table><thead><tr><th>VPN</th><th>Bits</th><th>PFN</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="steps"></div><div class="res"></div>`;
+    function render() {
+      const r = page(cfg, el.querySelector('[data-k="va"]').value);
+      const bitsEl = el.querySelector('.bits');
+      if (r.vpn !== undefined) {
+        const b = bin(r.va, vaBits);
+        bitsEl.innerHTML = [...b].map((ch, i) => `<span class="bit ${i < vpnBits ? 'sel' : 'off'}${i === vpnBits ? ' gap' : ''}"><i>${vaBits - 1 - i}</i><b>${ch}</b></span>`).join('');
+        el.querySelector('.bitlegend').innerHTML = `${r.va} = <code>${b.slice(0, vpnBits)} ${b.slice(vpnBits)}</code>₂ · <strong>VPN ${r.vpn}</strong> · offset ${r.offset}` +
+          (r.ok ? ` → PA = <code>${bin(r.pfn, Math.max(1, Math.ceil(Math.log2(Math.max(...cfg.table.filter(p => p !== null)) + 1))))} ${b.slice(vpnBits)}</code>₂` : '');
+      } else { bitsEl.innerHTML = ''; el.querySelector('.bitlegend').textContent = ''; }
+      el.querySelectorAll('tbody tr').forEach(tr => tr.classList.toggle('hit', +tr.dataset.i === r.vpn));
+      el.querySelector('.steps').textContent = r.steps.join('\n') || ' ';
+      const res = el.querySelector('.res');
+      res.className = 'res ' + (r.ok ? 'ok' : 'no');
+      res.textContent = r.ok ? `✓ Physical address = ${r.pa}` : `✗ FAULT: ${r.fault}`;
+    }
+    el.addEventListener('input', render);
+    render();
+  }
+
+  W.OSMem = { parse, bb, seg, page, bin, fmt, bbWidget, segWidget, pageWidget };
   if (typeof document !== 'undefined' && document.addEventListener) {
     document.addEventListener('DOMContentLoaded', () => {
-      if (!document.querySelector('[data-bb],[data-seg]')) return;
+      if (!document.querySelector('[data-bb],[data-seg],[data-page]')) return;
       injectCSS();
       document.querySelectorAll('[data-bb]').forEach(el => bbWidget(el, JSON.parse(el.dataset.bb)));
       document.querySelectorAll('[data-seg]').forEach(el => segWidget(el, JSON.parse(el.dataset.seg)));
+      document.querySelectorAll('[data-page]').forEach(el => pageWidget(el, JSON.parse(el.dataset.page)));
     });
   }
 })();

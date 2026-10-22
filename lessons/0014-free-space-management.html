@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Free-Space Management</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/quiz.js" defer></script>
+<script src="../assets/recall.js" defer></script>
+<style>
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+.lst { font-family: ui-monospace, monospace; font-size: .95em; white-space: nowrap; }
+</style>
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">← Course map</a><span>Lesson 14 · OSTEP Ch 17 · ~15 min</span></nav>
+
+<p class="kicker">Lesson 14 · Memory virtualization</p>
+<h1>Free-space management: how malloc finds you a chunk</h1>
+<p class="lede">Lesson 13 ended with external fragmentation. This chapter is about the allocator that has to live with it, whether that's <code>malloc()</code> managing your heap or the OS placing segments.</p>
+
+<div class="box key"><span class="tag">The one-sentence version</span>
+An allocator keeps a <strong>free list</strong> of the free chunks. It <strong>splits</strong> a chunk to hand out part of it, <strong>coalesces</strong> neighbouring free chunks when memory comes back, keeps a small <strong>header</strong> before each chunk so <code>free(ptr)</code> knows its size, and picks a chunk with a policy: <strong>best fit, worst fit, first fit or next fit</strong>. Other approaches are <strong>segregated lists</strong> (slab) and the <strong>buddy</strong> allocator.<a class="cite" href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-freespace.pdf">OSTEP Ch 17</a></div>
+
+<div class="warmup">
+<div class="rc"><p class="q">Lesson 13: What is external fragmentation, and why does segmentation cause it?</p><div class="a">Free memory gets chopped into <strong>small holes between allocated pieces</strong>, so a big request can fail even when enough total memory is free. Segmentation causes it because segments have <strong>variable sizes</strong>.</div></div>
+</div>
+
+<!-- ======================================================== -->
+<h2>The problem: free, but not in one piece</h2>
+<p class="crux"><strong>The problem:</strong> how should free space be managed when requests come in <em>different sizes</em>? <span class="cite">OSTEP §17 crux</span></p>
+<p>If every chunk were the same size, this would be easy: keep a list and hand out the first one. That's what paging does (Lesson 15). It gets hard when the sizes vary, which is exactly what happens with <code>malloc()</code>/<code>free()</code> and with segmentation.</p>
+<p>The book's picture is a 30-byte heap:</p>
+<figure>
+<svg viewBox="0 0 600 110" role="img" aria-label="A 30-byte heap: bytes 0 to 10 free, 10 to 20 used, 20 to 30 free">
+  <rect x="60" y="20" width="160" height="44" class="fig-surface2" stroke="var(--ink-2)"/><text x="140" y="47" text-anchor="middle" class="fig-ink" font-size="14">free (10)</text>
+  <rect x="220" y="20" width="160" height="44" fill="var(--s2)"/><text x="300" y="47" text-anchor="middle" fill="#fff" font-size="14">used</text>
+  <rect x="380" y="20" width="160" height="44" class="fig-surface2" stroke="var(--ink-2)"/><text x="460" y="47" text-anchor="middle" class="fig-ink" font-size="14">free (10)</text>
+  <g class="fig-ink2" font-size="12" text-anchor="middle"><text x="60" y="82">0</text><text x="220" y="82">10</text><text x="380" y="82">20</text><text x="540" y="82">30</text></g>
+  <text x="300" y="104" text-anchor="middle" class="fig-ink2" font-size="13">20 bytes free in total, but malloc(15) FAILS: no single 15-byte hole</text>
+</svg>
+<figcaption>External fragmentation. Based on the figure at the start of OSTEP Ch 17 (p. 179).</figcaption>
+</figure>
+<p>There are two kinds of waste. Learn the difference:</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Where the waste is</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td><strong>External</strong> fragmentation</td><td><em>Between</em> chunks: free holes too small to use</td><td>The 15-byte request above</td></tr>
+<tr><td><strong>Internal</strong> fragmentation</td><td><em>Inside</em> a handed-out chunk: you got more than you asked for</td><td>Ask for 7 KB, get an 8 KB block (buddy, below)</td></tr>
+</tbody></table></div>
+<p>The book makes three assumptions. (1) The interface is <code>malloc(size)</code> and <code>free(ptr)</code>, and <code>free</code> is <strong>not told the size</strong>. (2) Once memory is handed out it <strong>can't be moved</strong>, so <strong>no compaction</strong> in a C library. The OS <em>can</em> compact segments. (3) The heap is one fixed-size region. In real life it can grow with <code>sbrk</code>. <span class="cite">OSTEP §17.1</span></p>
+<p class="inshort"><strong>In short:</strong> variable sizes make free space fragment. External = holes between chunks; internal = waste inside a chunk.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">A heap has free holes of 12 and 8 bytes, with used memory between them. Will <code>malloc(16)</code> succeed? Name the problem.</p><div class="a"><strong>No.</strong> 20 bytes are free, but no single hole holds 16. That's <strong>external fragmentation</strong>.</div></div>
+<div class="close">
+  <p class="q">Which statement is TRUE?</p>
+  <ul>
+  <li data-true>Internal fragmentation is unused space inside a chunk the allocator handed out. <span class="why">Right: "the waste occurs inside the allocated unit" (§17.1).</span></li>
+  <li>External fragmentation is unused space inside a chunk the allocator handed out. <span class="why">That's <strong>internal</strong>. External fragmentation is the holes <em>between</em> chunks.</span></li>
+  <li>Internal fragmentation is unused space between the chunks the allocator handed out. <span class="why">Swapped. Holes <em>between</em> chunks = <strong>external</strong>.</span></li>
+  <li>A C malloc library fixes fragmentation by compacting the chunks it handed out. <span class="why">It <strong>can't</strong> move handed-out memory: the program holds pointers to it. Only the OS can compact (segments).</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Splitting and coalescing</h2>
+<p class="crux"><strong>The problem:</strong> a request is usually smaller than any free chunk, and freed chunks come back in pieces.</p>
+<p>Same 30-byte heap. Its free list has two nodes, one per free hole:</p>
+<p class="lst">head → [addr 0, len 10] → [addr 20, len 10] → NULL</p>
+<p><strong>Splitting.</strong> Someone calls <code>malloc(1)</code>. The allocator takes a chunk that fits, gives the front part to the caller and keeps the rest on the list. If it uses the second chunk, <code>malloc</code> returns <strong>20</strong> and the list becomes:</p>
+<p class="lst">head → [addr 0, len 10] → [addr <strong>21</strong>, len <strong>9</strong>] → NULL</p>
+<p><strong>Coalescing.</strong> Go back to the original heap and <code>free</code> the used middle chunk (bytes 10–19). If the allocator just adds it to the list, you get:</p>
+<p class="lst">head → [10, len 10] → [0, len 10] → [20, len 10] → NULL</p>
+<p>The <em>whole</em> heap is free, yet <code>malloc(20)</code> fails, because the list sees three 10-byte pieces. Coalescing fixes this: when a chunk is freed, check the addresses next to it, and <strong>merge it with any free neighbour</strong>:</p>
+<p class="lst">head → [addr 0, len 30] → NULL</p>
+<figure>
+<svg viewBox="0 0 600 150" role="img" aria-label="Before coalescing three 10-byte free pieces; after coalescing one 30-byte free piece">
+  <text x="20" y="40" class="fig-ink2" font-size="12">without</text>
+  <rect x="90" y="20" width="150" height="34" class="fig-surface2" stroke="var(--ink-2)"/><text x="165" y="42" text-anchor="middle" class="fig-ink" font-size="13">free 10</text>
+  <rect x="240" y="20" width="150" height="34" class="fig-surface2" stroke="var(--ink-2)"/><text x="315" y="42" text-anchor="middle" class="fig-ink" font-size="13">free 10</text>
+  <rect x="390" y="20" width="150" height="34" class="fig-surface2" stroke="var(--ink-2)"/><text x="465" y="42" text-anchor="middle" class="fig-ink" font-size="13">free 10</text>
+  <text x="550" y="42" class="fig-ink2" font-size="12">malloc(20) ✗</text>
+  <text x="20" y="100" class="fig-ink2" font-size="12">with</text>
+  <rect x="90" y="80" width="450" height="34" fill="var(--s1)"/><text x="315" y="102" text-anchor="middle" fill="#fff" font-size="13">free 30 (coalesced)</text>
+  <text x="550" y="102" class="fig-ink2" font-size="12">malloc(20) ✓</text>
+  <g class="fig-ink2" font-size="11" text-anchor="middle"><text x="90" y="134">0</text><text x="240" y="134">10</text><text x="390" y="134">20</text><text x="540" y="134">30</text></g>
+</svg>
+<figcaption>Coalescing turns neighbouring free pieces back into one big chunk (OSTEP §17.2).</figcaption>
+</figure>
+<p class="inshort"><strong>In short:</strong> <strong>split</strong> when a chunk is bigger than the request; <strong>coalesce</strong> neighbouring free chunks on <code>free</code>, or large requests fail for no good reason.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Free list: [addr 0, len 10] → [addr 20, len 10]. The allocator serves <code>malloc(4)</code> from the <em>first</em> chunk. What does malloc return, and what's the new list? (No headers.)</p><div class="a">Returns <strong>0</strong>. List: [addr <strong>4</strong>, len <strong>6</strong>] → [addr 20, len 10].</div></div>
+<div class="close">
+  <p class="q">A heap is 0–40. Free: 0–10 and 20–30. Used: 10–20 and 30–40. The program frees 10–20. With coalescing, which free list is TRUE?</p>
+  <ul>
+  <li data-true>One node: addr 0, len 30. <span class="why">10–20 sits between two free chunks, so all three merge into 0–30. 30–40 is still used.</span></li>
+  <li>One node: addr 0, len 40. <span class="why">30–40 is still <strong>used</strong>, so the merge stops at 30.</span></li>
+  <li>Two nodes: addr 0, len 20 and addr 20, len 10. <span class="why">20–30 is free and right next to 10–20, so it merges too. Coalescing merges with <em>both</em> neighbours.</span></li>
+  <li>Three nodes: addr 0, addr 10, addr 20, each len 10. <span class="why">That's the list <em>without</em> coalescing.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>The header: how free(ptr) knows the size</h2>
+<p class="crux"><strong>The problem:</strong> <code>free(ptr)</code> gets no size. How does the library know how big the chunk is?</p>
+<p>It hides a small <strong>header</strong> right <em>before</em> the memory it hands you. The book's header holds the <strong>size</strong> and a <strong>magic number</strong> (for a sanity check): <span class="cite">OSTEP §17.2, Fig 17.2</span></p>
+<pre><code>typedef struct { int size; int magic; } header_t;   // 8 bytes
+
+void free(void *ptr) {
+    header_t *hptr = (header_t *) ptr - 1;   // step back one header
+    assert(hptr->magic == 1234567);
+    ...
+}</code></pre>
+<figure>
+<svg viewBox="0 0 600 120" role="img" aria-label="An allocated region: an 8-byte header with size 20 and magic, then 20 bytes; ptr points just after the header">
+  <rect x="80" y="30" width="130" height="50" fill="var(--s3)"/><text x="145" y="52" text-anchor="middle" fill="#fff" font-size="12">size: 20</text><text x="145" y="68" text-anchor="middle" fill="#fff" font-size="12">magic: 1234567</text>
+  <rect x="210" y="30" width="310" height="50" fill="var(--s1)"/><text x="365" y="60" text-anchor="middle" fill="#fff" font-size="13">the 20 bytes you asked for</text>
+  <path d="M210 104 L210 84" stroke="var(--ink-2)" stroke-width="1.5"/><text x="210" y="116" text-anchor="middle" class="fig-ink" font-size="12">ptr (what malloc returns)</text>
+  <path d="M80 104 L80 84" stroke="var(--ink-2)" stroke-width="1.5"/><text x="80" y="116" text-anchor="middle" class="fig-ink2" font-size="12">hptr = ptr − 1 header</text>
+  <text x="145" y="20" text-anchor="middle" class="fig-ink2" font-size="11">header (8 bytes)</text>
+</svg>
+<figcaption><code>ptr = malloc(20)</code>: the library really uses 20 + 8 = 28 bytes.</figcaption>
+</figure>
+<div class="box trap"><span class="tag">The detail they test</span>When you ask for <strong>N</strong> bytes, the library looks for a free chunk of <strong>N + header size</strong>, not N.</div>
+<p><strong>The free list lives inside the free space itself.</strong> The library can't call <code>malloc</code> to make list nodes, so each free chunk starts with a node: <code>struct { int size; node_t *next; }</code>, also 8 bytes in the book. <span class="cite">OSTEP §17.2</span></p>
+<p>Trace the book's example: a 4 KB (4,096-byte) heap at virtual address 16 KB (16,384), with 8-byte headers.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Step</th><th>What happens</th><th class="r">Free chunk size</th></tr></thead>
+<tbody>
+<tr><td>Start</td><td>One free node: 4,096 − 8 (its node header)</td><td class="r">4,088</td></tr>
+<tr><td><code>malloc(100)</code></td><td>Uses 100 + 8 = 108 bytes; returns 16,384 + 8 = <strong>16,392</strong></td><td class="r">4,088 − 108 = 3,980</td></tr>
+<tr><td>2 more <code>malloc(100)</code></td><td>Each uses 108; 324 bytes used in total</td><td class="r">3,980 − 216 = 3,764</td></tr>
+<tr><td><code>free(16500)</code></td><td>The middle chunk: 16,384 + 108 + 8 = 16,500. It goes on the head of the list.</td><td class="r">100 and 3,764</td></tr>
+</tbody></table></div>
+<p class="inshort"><strong>In short:</strong> header = size + magic, sitting just before <code>ptr</code>; <code>free</code> finds it at <code>ptr − 1</code>. A request for N needs N + header bytes.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">8-byte headers. A fresh 4,096-byte heap starts at address 8,192 (free chunk = 4,088). The program calls <code>malloc(200)</code> and then <code>malloc(50)</code>. What does each call return, and how big is the free chunk afterwards?</p><div class="a">1st: uses 208, returns 8,192 + 8 = <strong>8,200</strong>.<br>2nd: starts at 8,192 + 208 = 8,400, returns 8,400 + 8 = <strong>8,408</strong>, uses 58.<br>Free = 4,088 − 208 − 58 = <strong>3,822</strong>.</div></div>
+<div class="close">
+  <p class="q">Headers are 8 bytes. A program calls <code>malloc(64)</code>. Which is TRUE?</p>
+  <ul>
+  <li data-true>The library searches for a 72-byte chunk and stores the size just before ptr. <span class="why">N + header = 64 + 8 = 72, and the header sits right before the returned pointer.</span></li>
+  <li>The library searches for a 64-byte chunk and stores the size just before ptr. <span class="why">It needs room for the header too: <strong>72</strong>.</span></li>
+  <li>The library searches for a 72-byte chunk and stores the size just after ptr. <span class="why">The header is <strong>before</strong> ptr; free uses <code>(header_t*)ptr − 1</code>.</span></li>
+  <li>The library searches for a 64-byte chunk and free() gets the size from its argument. <span class="why"><code>free(void *ptr)</code> takes <strong>no size</strong>; that's why the header exists.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Picking a chunk: best, worst, first, next fit</h2>
+<p class="crux"><strong>The problem:</strong> several free chunks fit the request. Which one should the allocator use?</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Policy</th><th>Picks</th><th>Good</th><th>Bad</th></tr></thead>
+<tbody>
+<tr><td><strong>Best fit</strong></td><td>The <em>smallest</em> chunk that fits</td><td>Little waste</td><td>Searches the whole list; leaves tiny leftover slivers</td></tr>
+<tr><td><strong>Worst fit</strong></td><td>The <em>largest</em> chunk</td><td>Leftovers stay big</td><td>Searches the whole list; studies show it does badly (more fragmentation)</td></tr>
+<tr><td><strong>First fit</strong></td><td>The <em>first</em> chunk that fits</td><td>Fast: stops early</td><td>Clutters the front of the list with small pieces</td></tr>
+<tr><td><strong>Next fit</strong></td><td>First fit, but starts where the last search stopped</td><td>Fast; spreads searches over the list</td><td>Performance similar to first fit</td></tr>
+</tbody></table></div>
+<p>First fit works better if the list is kept in <strong>address order</strong>, which also makes coalescing easier. <span class="cite">OSTEP §17.3</span></p>
+<p>The book's example: free list <span class="lst">10 → 30 → 20</span>, request <strong>15</strong> (ignore headers).</p>
+<figure>
+<svg viewBox="0 0 600 190" role="img" aria-label="Free list 10, 30, 20 and request 15: best fit uses 20 leaving 10,30,5; worst fit uses 30 leaving 10,15,20; first fit also uses 30">
+  <g font-size="13">
+  <text x="10" y="32" class="fig-ink2">start</text>
+  <rect x="120" y="14" width="60" height="28" class="fig-surface2" stroke="var(--ink-2)"/><text x="150" y="33" text-anchor="middle" class="fig-ink">10</text>
+  <rect x="200" y="14" width="180" height="28" class="fig-surface2" stroke="var(--ink-2)"/><text x="290" y="33" text-anchor="middle" class="fig-ink">30</text>
+  <rect x="400" y="14" width="120" height="28" class="fig-surface2" stroke="var(--ink-2)"/><text x="460" y="33" text-anchor="middle" class="fig-ink">20</text>
+
+  <text x="10" y="82" class="fig-ink2">best fit</text>
+  <rect x="120" y="64" width="60" height="28" class="fig-surface2" stroke="var(--ink-2)"/><text x="150" y="83" text-anchor="middle" class="fig-ink">10</text>
+  <rect x="200" y="64" width="180" height="28" class="fig-surface2" stroke="var(--ink-2)"/><text x="290" y="83" text-anchor="middle" class="fig-ink">30</text>
+  <rect x="400" y="64" width="90" height="28" fill="var(--s2)"/><text x="445" y="83" text-anchor="middle" fill="#fff">15</text>
+  <rect x="490" y="64" width="30" height="28" class="fig-surface2" stroke="var(--ink-2)"/><text x="505" y="83" text-anchor="middle" class="fig-ink">5</text>
+  <text x="530" y="83" class="fig-ink2" font-size="12">→ 10, 30, 5</text>
+
+  <text x="10" y="132" class="fig-ink2">worst fit</text>
+  <rect x="120" y="114" width="60" height="28" class="fig-surface2" stroke="var(--ink-2)"/><text x="150" y="133" text-anchor="middle" class="fig-ink">10</text>
+  <rect x="200" y="114" width="90" height="28" fill="var(--s2)"/><text x="245" y="133" text-anchor="middle" fill="#fff">15</text>
+  <rect x="290" y="114" width="90" height="28" class="fig-surface2" stroke="var(--ink-2)"/><text x="335" y="133" text-anchor="middle" class="fig-ink">15</text>
+  <rect x="400" y="114" width="120" height="28" class="fig-surface2" stroke="var(--ink-2)"/><text x="460" y="133" text-anchor="middle" class="fig-ink">20</text>
+  <text x="530" y="133" class="fig-ink2" font-size="12">→ 10, 15, 20</text>
+
+  <text x="10" y="178" class="fig-ink2">first fit</text>
+  <text x="120" y="178" class="fig-ink" font-size="13">10 is too small → 30 is the first that fits → same result as worst fit here: 10, 15, 20</text>
+  </g>
+</svg>
+<figcaption>Coloured = handed out to the request. Best and worst fit scan the <em>whole</em> list; first fit stops at 30 (OSTEP §17.3).</figcaption>
+</figure>
+<p class="inshort"><strong>In short:</strong> best = smallest that fits; worst = biggest; first = first that fits; next = first fit starting where you left off. Best/worst scan everything; first/next are fast.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Free list: 25 → 8 → 40 → 12. Request 10. Give the list after best fit, worst fit and first fit.</p><div class="a">Best (12): <strong>25, 8, 40, 2</strong>.<br>Worst (40): <strong>25, 8, 30, 12</strong>.<br>First (25): <strong>15, 8, 40, 12</strong>.</div></div>
+<div class="close">
+  <p class="q">Free list: 18 → 6 → 11 → 30. Request 9. Which is TRUE?</p>
+  <ul>
+  <li data-true>Best fit picks 11, leaving 18 → 6 → 2 → 30. <span class="why">The chunks that fit are 18, 11 and 30. The smallest is 11; 11 − 9 = 2.</span></li>
+  <li>Best fit picks 6, leaving 18 → 0 → 11 → 30. <span class="why">6 &lt; 9 doesn't fit. Best fit chooses the smallest chunk <strong>that fits</strong>.</span></li>
+  <li>Best fit picks 18, leaving 9 → 6 → 11 → 30. <span class="why">18 is what <strong>first fit</strong> picks. Best fit scans the whole list and picks 11.</span></li>
+  <li>Best fit picks 30, leaving 18 → 6 → 11 → 21. <span class="why">That's <strong>worst fit</strong> (largest chunk).</span></li>
+  </ul>
+</div>
+<div class="close">
+  <p class="q">Which statement about the policies is TRUE?</p>
+  <ul>
+  <li data-true>First fit is fast because it stops searching at the first chunk that fits. <span class="why">Right: no exhaustive search (§17.3).</span></li>
+  <li>Best fit is fast because it stops searching at the first chunk that fits. <span class="why">Best fit must scan the <strong>whole</strong> list to be sure it has the smallest.</span></li>
+  <li>Worst fit is the best policy because it leaves large leftover chunks. <span class="why">That's the idea, but the book says studies show it <strong>performs badly</strong>: more fragmentation and high overhead.</span></li>
+  <li>Next fit always starts its search at the head of the free list. <span class="why">Next fit starts where the <strong>last</strong> search stopped; that's the whole point.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Other approaches: segregated lists, slab, buddy</h2>
+<p class="crux"><strong>The problem:</strong> searching lists is slow, and coalescing is fiddly. Can we design around that?</p>
+<p><strong>Segregated lists.</strong> If an app often asks for one particular size, keep a <em>separate list just for that size</em>. Other requests go to a general allocator. Those requests are fast (no search) and fragmentation is less of a concern. The hard question: how much memory to give each pool? <span class="cite">OSTEP §17.4</span></p>
+<p><strong>Slab allocator</strong> (Jeff Bonwick, Solaris kernel). At boot it makes <strong>object caches</strong> for common kernel objects (locks, inodes…): one segregated list per size. A cache that runs low asks the general allocator for more <em>slabs</em>. It also keeps free objects <strong>pre-initialized</strong>, which saves the cost of building and tearing them down each time.</p>
+<p><strong>Binary buddy allocator.</strong> Think of free memory as one block of size 2<sup>N</sup>. For a request, <strong>keep halving</strong> until one more split would be too small. Then hand out that block.</p>
+<figure>
+<svg viewBox="0 0 600 210" role="img" aria-label="Buddy tree: 64 KB splits to two 32 KB, left 32 to two 16 KB, left 16 to two 8 KB; the leftmost 8 KB is allocated for a 7 KB request">
+  <g font-size="13" text-anchor="middle">
+  <rect x="40" y="10" width="520" height="34" class="fig-surface2" stroke="var(--ink-2)"/><text x="300" y="32" class="fig-ink">64 KB</text>
+  <rect x="40" y="60" width="260" height="34" class="fig-surface2" stroke="var(--ink-2)"/><text x="170" y="82" class="fig-ink">32 KB</text>
+  <rect x="300" y="60" width="260" height="34" class="fig-surface" stroke="var(--ink-2)"/><text x="430" y="82" class="fig-ink2">32 KB (free)</text>
+  <rect x="40" y="110" width="130" height="34" class="fig-surface2" stroke="var(--ink-2)"/><text x="105" y="132" class="fig-ink">16 KB</text>
+  <rect x="170" y="110" width="130" height="34" class="fig-surface" stroke="var(--ink-2)"/><text x="235" y="132" class="fig-ink2">16 KB (free)</text>
+  <rect x="40" y="160" width="65" height="34" fill="var(--s2)"/><text x="72" y="182" fill="#fff">8 KB ✓</text>
+  <rect x="105" y="160" width="65" height="34" class="fig-surface" stroke="var(--ink-2)"/><text x="137" y="182" class="fig-ink2" font-size="11">8 KB buddy</text>
+  </g>
+  <text x="190" y="182" class="fig-ink2" font-size="12">request 7 KB → 8 KB block (1 KB internal fragmentation)</text>
+</svg>
+<figcaption>Based on OSTEP Fig 17.8: a 64 KB space split to serve a 7 KB request.</figcaption>
+</figure>
+<ul>
+<li><strong>Cost:</strong> blocks are only powers of two, so you get <strong>internal fragmentation</strong> (7 KB → 8 KB block).</li>
+<li><strong>Benefit:</strong> coalescing is easy. When the 8 KB block is freed, check its <strong>buddy</strong>. If the buddy is free, merge into 16 KB, check <em>that</em> block's buddy, and keep going up the tree until a buddy is in use.</li>
+<li><strong>Why it's easy to find the buddy:</strong> the addresses of a buddy pair <strong>differ by a single bit</strong>, and which bit depends on the level in the tree.</li>
+</ul>
+<p>Other ideas: plain lists don't scale, so advanced allocators use balanced binary trees, splay trees or partially-ordered trees. There are also allocators built for multiprocessors (Hoard, jemalloc).</p>
+<p class="inshort"><strong>In short:</strong> segregated lists/slab = a fast pool per popular size. Buddy = halve until it just fits; easy coalescing (buddies differ by one address bit), but internal fragmentation.</p>
+
+<div class="checkpoint">
+<div class="rc"><p class="q">Buddy allocator over 32 KB. Request 3 KB. Which block size is handed out, how much is wasted, and what splits happen?</p><div class="a">32 → 16 → 8 → <strong>4 KB</strong> (2 KB would be too small). Waste = 4 − 3 = <strong>1 KB internal fragmentation</strong>.</div></div>
+<div class="close">
+  <p class="q">Which statement about the buddy allocator is TRUE?</p>
+  <ul>
+  <li data-true>It suffers internal fragmentation because it only hands out power-of-two blocks. <span class="why">Right (§17.4): a 7 KB request gets an 8 KB block.</span></li>
+  <li>It suffers external fragmentation because it only hands out power-of-two blocks. <span class="why">The waste is <strong>inside</strong> the handed-out block, so it's <strong>internal</strong> fragmentation.</span></li>
+  <li>It suffers internal fragmentation because finding a block's buddy needs a full list search. <span class="why">Finding the buddy is cheap: the two addresses differ by <strong>one bit</strong>.</span></li>
+  <li>It avoids all fragmentation because buddies are always coalesced when freed. <span class="why">Coalescing helps, but rounding up to powers of two still wastes space <em>inside</em> blocks.</span></li>
+  </ul>
+</div>
+</div>
+
+<!-- ======================================================== -->
+<h2>Final practice</h2>
+
+<div class="num" data-answer="5">
+<p class="q">1. Free list 10 → 30 → 20 (the book's), request 15, <strong>best fit</strong>. What size is the leftover chunk?</p>
+<div class="why">Best fit picks 20 (smallest that fits). 20 − 15 = <strong>5</strong>. The list becomes 10, 30, 5.</div>
+</div>
+
+<div class="num" data-answer="3872">
+<p class="q">2. A 4,096-byte heap, 8-byte headers, one free node to start (4,088). After <code>malloc(100)</code> and <code>malloc(100)</code>, then <code>free</code> of the <em>first</em> one, how big is the big free chunk at the end of the heap?</p>
+<div class="why">Each malloc uses 108, so the end chunk is 4,088 − 216 = <strong>3,872</strong>. Freeing the first chunk adds a separate 100-byte node; it's not next to the end chunk, so they can't coalesce.</div>
+</div>
+
+<div class="mcq" data-correct="2">
+<p class="q">3. Why does a C malloc library build its free list <em>inside</em> the free chunks?</p>
+<button>Because the list is faster when kept in registers.</button>
+<button>Because the OS forbids it from making system calls.</button>
+<button>Because it can't call malloc to make list nodes.</button>
+<button>Because headers already hold every chunk's next pointer.</button>
+<div class="why">You can't call <code>malloc()</code> from inside <code>malloc()</code> to get list nodes, so each free chunk starts with its own <code>{size, next}</code> node (§17.2).</div>
+</div>
+
+<div class="mcq" data-correct="1">
+<p class="q">4. The heap runs out of space. What do most traditional allocators do?</p>
+<button>They compact the heap by moving allocated chunks.</button>
+<button>They ask the OS for more memory, e.g. sbrk.</button>
+<button>They switch policy from best fit to worst fit.</button>
+<button>They free the oldest allocated chunk to make space.</button>
+<div class="why">They call something like <strong>sbrk</strong>. The OS finds free physical pages, maps them in, and the heap grows. (Simply returning NULL is also allowed.)</div>
+</div>
+
+<details class="recall"><summary>5. Explain splitting and coalescing in one sentence each, and say why coalescing matters.</summary>
+<div><strong>Splitting:</strong> when a free chunk is bigger than the request, hand out the front part and leave the rest on the free list. <strong>Coalescing:</strong> when freeing, merge the chunk with free chunks right next to it. Without coalescing, a fully free heap can look like many small pieces and large requests fail.</div></details>
+
+<!-- ======================================================== -->
+<div class="source"><span class="tag">Primary source: read this next</span>
+<p style="margin:.3rem 0 0"><a href="https://pages.cs.wisc.edu/~remzi/OSTEP/vm-freespace.pdf">OSTEP Chapter 17: Free-Space Management</a> (pp. 179–194 of your <code>OS - Book.pdf</code>). If you only have 5 minutes, read §17.3, the best/worst/first fit example on pp. 190–191. Your Lab 7 code (<code>BestFit.c</code>, <code>WorstFit.c</code>) is the same idea in C.</p></div>
+
+<p class="ask">💬 Something unclear? Ask me (your Claude teacher), e.g. <em>"give me 3 more best/worst/first fit lists"</em> or <em>"walk me through the header math again"</em>.</p>
+
+<nav class="nextprev"><a href="0013-segmentation.html">← Lesson 13 · Segmentation</a><a href="0015-paging.html">Lesson 15 · Paging →</a></nav>
+</main>
+</body>
+</html>
